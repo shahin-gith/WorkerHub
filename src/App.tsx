@@ -51,10 +51,8 @@ export default function App() {
   // Device User ID & in-memory session token (token is never saved in localStorage)
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [deviceUser, setDeviceUser] = useState<DeviceUser | null>(() => {
-    const savedId = storageService.getDeviceUserId();
-    return savedId
-      ? { id: savedId, displayName: 'Worker', role: 'worker', createdAt: Date.now() }
-      : null;
+    const activeId = storageService.getOrCreateDeviceUserId();
+    return { id: activeId, displayName: 'Worker', role: 'worker', createdAt: Date.now() };
   });
   const [isDeviceIdModalOpen, setIsDeviceIdModalOpen] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -179,10 +177,8 @@ export default function App() {
 
     const promise = (async () => {
       try {
-        const savedId = storageService.getDeviceUserId();
-        const res: DeviceAuthResponse = savedId
-          ? await apiClient.connectDevice(savedId, true)
-          : await apiClient.initDevice('Worker');
+        const activeId = storageService.getOrCreateDeviceUserId();
+        const res: DeviceAuthResponse = await apiClient.connectDevice(activeId, true);
 
         storageService.saveDeviceUserId(res.user.id);
         setAuthToken(res.token);
@@ -710,6 +706,18 @@ export default function App() {
         isSynced={Boolean(authToken)}
         sessionError={deviceSessionError}
         onConnected={handleDeviceConnected}
+        onOfflineRandomId={(newId) => {
+          storageService.clearAllLocalRecords();
+          storageService.saveDeviceUserId(newId);
+          setAuthToken(null);
+          setDeviceUser({
+            id: newId,
+            displayName: 'Worker',
+            role: 'worker',
+            createdAt: Date.now(),
+          });
+          loadLocalState();
+        }}
         onRetryConnect={async () => {
           await ensureDeviceSession();
         }}

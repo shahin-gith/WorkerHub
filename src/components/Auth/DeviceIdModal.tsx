@@ -12,6 +12,7 @@ import {
   Cloud,
 } from 'lucide-react';
 import { apiClient, DeviceAuthResponse } from '../../services/apiClient';
+import { storageService } from '../../services/storageService';
 import { DeviceUser, Language } from '../../types';
 import { copyToClipboard } from '../../utils/clipboard';
 
@@ -23,6 +24,7 @@ interface DeviceIdModalProps {
   isSynced: boolean;
   sessionError?: string | null;
   onConnected: (res: DeviceAuthResponse) => void;
+  onOfflineRandomId: (newId: string) => void;
   onRetryConnect: () => Promise<void>;
   onRefreshSync: () => Promise<void>;
 }
@@ -42,6 +44,7 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
   isSynced,
   sessionError,
   onConnected,
+  onOfflineRandomId,
   onRetryConnect,
   onRefreshSync,
 }) => {
@@ -68,7 +71,7 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
     ? deviceUser.id.replace(/(\d{4})(\d+)/, '$1 $2')
     : syncingNow
     ? 'Connecting...'
-    : 'Not Assigned';
+    : 'Generating...';
 
   const handleCopyId = async () => {
     if (!deviceUser?.id) return;
@@ -109,8 +112,8 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
     if (!/^\d{6,12}$/.test(cleaned)) {
       setError(
         language === 'bn'
-          ? 'অনুগ্রহ করে ৬ থেকে ১২ সংখ্যার সঠিক ইউজার আইডি লিখুন।'
-          : 'Please enter a valid 6–12 digit User ID number.'
+          ? 'অনুগ্রহ করে ৬ থেকে ১২ সংখ্যার একটি ইউজার আইডি লিখুন।'
+          : 'Please enter a 6–12 digit User ID number.'
       );
       return;
     }
@@ -119,16 +122,23 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
     setSuccessMsg(null);
     setLoading(true);
     try {
-      const res = await apiClient.connectDevice(cleaned, false);
+      const res = await apiClient.connectDevice(cleaned, true);
       onConnected(res);
       setTargetUserId('');
+      const hasRecords =
+        res.data.shifts.length > 0 ||
+        res.data.documents.length > 0 ||
+        res.data.companyHistory.length > 0 ||
+        res.data.finance.length > 0;
       setSuccessMsg(
         language === 'bn'
-          ? `ইউজার আইডি ${res.user.id} থেকে সব তথ্য লোড হয়েছে!`
-          : `Connected to User ID ${res.user.id}. All synced records loaded!`
+          ? `ইউজার আইডি ${res.user.id} কানেক্ট হয়েছে${hasRecords ? ' এবং সব তথ্য লোড হয়েছে!' : '!'}`
+          : hasRecords
+          ? `Connected to User ID ${res.user.id} — loaded all saved records!`
+          : `Connected to User ID ${res.user.id} (ready to sync across devices).`
       );
     } catch (err: unknown) {
-      setError((err as Error).message || 'Could not find that User ID.');
+      setError((err as Error).message || 'Could not connect to that User ID.');
     } finally {
       setLoading(false);
     }
@@ -143,11 +153,17 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
       onConnected(res);
       setSuccessMsg(
         language === 'bn'
-          ? `নতুন ইউজার আইডি তৈরি হয়েছে: ${res.user.id}`
-          : `New Device User ID created: ${res.user.id}`
+          ? `নতুন র‍্যান্ডম ইউজার আইডি তৈরি হয়েছে: ${res.user.id}`
+          : `New random User ID generated: ${res.user.id}`
       );
-    } catch (err: unknown) {
-      setError((err as Error).message || 'Failed to generate new User ID.');
+    } catch {
+      const localRandomId = storageService.generateRandomDeviceId();
+      onOfflineRandomId(localRandomId);
+      setSuccessMsg(
+        language === 'bn'
+          ? `নতুন র‍্যান্ডম ইউজার আইডি তৈরি হয়েছে: ${localRandomId}`
+          : `New random User ID generated: ${localRandomId}`
+      );
     } finally {
       setLoading(false);
     }
@@ -169,8 +185,8 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
               </h2>
               <p className="text-[11px] text-slate-500">
                 {language === 'bn'
-                  ? 'ইমেইল বা পাসওয়ার্ড ছাড়াই অন্য ফোনে লগইন করুন'
-                  : 'No email needed · Access your records on any device'}
+                  ? 'ভেরিফিকেশন ছাড়াই অটো র‍্যান্ডম আইডি ও ক্রস-ডিভাইস সিঙ্ক'
+                  : 'Instant random ID · No verification or email needed'}
               </p>
             </div>
           </div>
@@ -205,7 +221,7 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
               ) : (
                 <Cloud className="w-3 h-3" />
               )}
-              <span>{syncingNow ? 'Syncing...' : isSynced ? 'Synced · Refresh' : 'Retry Connect'}</span>
+              <span>{syncingNow ? 'Syncing...' : isSynced ? 'Synced · Refresh' : 'Sync Online'}</span>
             </button>
           </div>
 
@@ -227,7 +243,7 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
           <p className="text-[11px] text-amber-900 dark:text-amber-200/90 leading-relaxed">
             {language === 'bn'
               ? 'এই নম্বরটি লিখে বা কপি করে রাখুন। নতুন বা অন্য মোবাইল থেকে আপনার টাইম কার্ড, বেতন ও ডকুমেন্ট ফিরে পেতে এই আইডি নম্বর ব্যবহার করুন।'
-              : 'Save this User ID number. Enter it on any other phone or browser to instantly load all your shifts, documents, CV, and finances.'}
+              : 'Save this random User ID number. Enter it on any other phone or browser to access your shifts, documents, CV, and finances without verification.'}
           </p>
         </div>
 
@@ -250,7 +266,7 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
           <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
             {language === 'bn'
               ? 'অন্য ডিভাইসের ইউজার আইডি দিয়ে লগইন করুন'
-              : 'Login with User ID from Another Device'}
+              : 'Connect with User ID from Another Device'}
           </label>
           <div className="flex flex-col sm:flex-row gap-2">
             <input
@@ -272,9 +288,11 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
           </div>
         </form>
 
-        {/* Generate fresh ID */}
+        {/* Generate fresh random ID */}
         <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] text-slate-500">Need a separate blank workspace?</span>
+          <span className="text-[11px] text-slate-500">
+            {language === 'bn' ? 'নতুন র‍্যান্ডম আইডি লাগবে?' : 'Want a fresh random ID?'}
+          </span>
           <button
             type="button"
             onClick={handleGenerateNewId}
@@ -282,7 +300,7 @@ export const DeviceIdModal: React.FC<DeviceIdModalProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
           >
             <RefreshCw className="w-3.5 h-3.5" />
-            <span>New User ID</span>
+            <span>{language === 'bn' ? 'নতুন র‍্যান্ডম আইডি' : 'Generate Random ID'}</span>
           </button>
         </div>
       </div>

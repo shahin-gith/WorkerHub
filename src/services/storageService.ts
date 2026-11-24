@@ -124,6 +124,20 @@ export const DEFAULT_SAVINGS_GOAL: SavingsGoal = {
 };
 
 export const storageService = {
+  generateRandomDeviceId(): string {
+    try {
+      if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        const arr = new Uint32Array(1);
+        crypto.getRandomValues(arr);
+        const num = 10000000 + (arr[0] % 90000000);
+        return String(num);
+      }
+    } catch {
+      // Fallback below
+    }
+    return String(10000000 + Math.floor(Math.random() * 90000000));
+  },
+
   getDeviceUserId(): string | null {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_USER_ID);
@@ -131,6 +145,14 @@ export const storageService = {
     } catch {
       return null;
     }
+  },
+
+  getOrCreateDeviceUserId(): string {
+    const existing = this.getDeviceUserId();
+    if (existing) return existing;
+    const generated = this.generateRandomDeviceId();
+    this.saveDeviceUserId(generated);
+    return generated;
   },
 
   saveDeviceUserId(userId: string): void {
