@@ -125,16 +125,28 @@ export const DEFAULT_SAVINGS_GOAL: SavingsGoal = {
 
 export const storageService = {
   getDeviceUserId(): string | null {
-    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_USER_ID);
-    return raw && /^\d{6,12}$/.test(raw.trim()) ? raw.trim() : null;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_USER_ID);
+      return raw && /^\d{6,12}$/.test(raw.trim()) ? raw.trim() : null;
+    } catch {
+      return null;
+    }
   },
 
   saveDeviceUserId(userId: string): void {
-    localStorage.setItem(STORAGE_KEYS.DEVICE_USER_ID, userId.trim());
+    try {
+      localStorage.setItem(STORAGE_KEYS.DEVICE_USER_ID, userId.trim());
+    } catch {
+      // Ignore storage quota / restricted storage errors
+    }
   },
 
   clearDeviceUserId(): void {
-    localStorage.removeItem(STORAGE_KEYS.DEVICE_USER_ID);
+    try {
+      localStorage.removeItem(STORAGE_KEYS.DEVICE_USER_ID);
+    } catch {
+      // Ignore storage errors
+    }
   },
 
   getShifts(): WorkShift[] {

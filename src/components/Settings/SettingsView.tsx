@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { storageService } from '../../services/storageService';
+import { copyToClipboard } from '../../utils/clipboard';
 import {
   CompanyHistoryItem,
   DeviceUser,
@@ -71,11 +72,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [deleting, setDeleting] = useState(false);
   const [copiedId, setCopiedId] = useState(false);
 
-  const handleCopyId = () => {
+  const handleCopyId = async () => {
     if (!deviceUser?.id) return;
-    navigator.clipboard.writeText(deviceUser.id);
-    setCopiedId(true);
-    setTimeout(() => setCopiedId(false), 2000);
+    const ok = await copyToClipboard(deviceUser.id);
+    if (ok) {
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 2000);
+    }
   };
 
   const handleExport = () => {

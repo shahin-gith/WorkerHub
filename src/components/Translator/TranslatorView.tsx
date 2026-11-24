@@ -13,6 +13,7 @@ import {
 import { WORKPLACE_PHRASES, PhraseItem } from '../../services/translatorPhrases';
 import { Language } from '../../types';
 import { getTranslation } from '../../services/i18n';
+import { copyToClipboard } from '../../utils/clipboard';
 
 interface TranslatorViewProps {
   language: Language;
@@ -30,10 +31,12 @@ export const TranslatorView: React.FC<TranslatorViewProps> = ({ language }) => {
   const [inputText, setInputText] = useState('');
   const [quickTranslation, setQuickTranslation] = useState<string | null>(null);
 
-  const handleCopy = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopy = async (id: string, text: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
   };
 
   const handleTextTranslate = () => {

@@ -22,6 +22,7 @@ import { VERIFIED_RESOURCES } from '../../services/verifiedResources';
 import { HelpArticle, HelpSearchResult, Language } from '../../types';
 import { getTranslation } from '../../services/i18n';
 import { apiClient } from '../../services/apiClient';
+import { copyToClipboard } from '../../utils/clipboard';
 
 interface WorkerHelpViewProps {
   language: Language;
@@ -138,10 +139,12 @@ export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
     sourceUrl: '',
   });
 
-  const handleCopy = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const handleCopy = async (id: string, text: string) => {
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    }
   };
 
   const handleSearchMoreArticles = async (e?: React.FormEvent) => {

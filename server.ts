@@ -263,7 +263,11 @@ async function createServer() {
 
   // Connect current device to an existing User ID (or auto-restore on reload)
   app.post('/api/device/connect', (req, res) => {
-    const rawId = typeof req.body?.userId === 'string' ? req.body.userId.replace(/\s+/g, '') : '';
+    const rawInput = req.body?.userId != null ? String(req.body.userId) : '';
+    const rawId = rawInput
+      .trim()
+      .replace(/^(?:id\s*:?\s*|#)+/i, '')
+      .replace(/[\s-]+/g, '');
     const autoCreateIfMissing = Boolean(req.body?.autoCreateIfMissing);
 
     if (!/^\d{6,12}$/.test(rawId)) {

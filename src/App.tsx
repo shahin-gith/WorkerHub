@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   storageService,
   DEFAULT_DASHBOARD_CONFIG,
@@ -50,9 +50,18 @@ export default function App() {
 
   // Device User ID & in-memory session token (token is never saved in localStorage)
   const [authToken, setAuthToken] = useState<string | null>(null);
-  const [deviceUser, setDeviceUser] = useState<DeviceUser | null>(null);
+  const [deviceUser, setDeviceUser] = useState<DeviceUser | null>(() => {
+    const savedId = storageService.getDeviceUserId();
+    return savedId
+      ? { id: savedId, displayName: 'Worker', role: 'worker', createdAt: Date.now() }
+      : null;
+  });
   const [isDeviceIdModalOpen, setIsDeviceIdModalOpen] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [deviceSessionError, setDeviceSessionError] = useState<string | null>(null);
+  const sessionInitPromiseRef = useRef<Promise<{ token: string; user: DeviceUser } | null> | null>(
+    null
+  );
 
   // Network online status
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -159,58 +168,70 @@ export default function App() {
     setDashboardConfig(storageService.getDashboardConfig());
   }, []);
 
-  // Auto-bootstrap Device User ID on launch (no email/password required)
+  // Auto-bootstrap Device User ID on launch (single-flight mutex prevents duplicate ID creation)
   const ensureDeviceSession = useCallback(async (): Promise<{
     token: string;
     user: DeviceUser;
   } | null> => {
-    try {
-      const savedId = storageService.getDeviceUserId();
-      const res: DeviceAuthResponse = savedId
-        ? await apiClient.connectDevice(savedId, true)
-        : await apiClient.initDevice('Worker');
-
-      storageService.saveDeviceUserId(res.user.id);
-      setAuthToken(res.token);
-      setDeviceUser(res.user);
-
-      // If this device already has offline records and the server record is blank, sync them up once
-      const serverIsEmpty =
-        res.data.shifts.length === 0 &&
-        res.data.documents.length === 0 &&
-        res.data.companyHistory.length === 0 &&
-        res.data.finance.length === 0;
-
-      if (!savedId && serverIsEmpty && storageService.hasLocalRecords()) {
-        const imported = await apiClient.importLocalData(res.token, {
-          shifts: storageService.getShifts(),
-          documents: storageService.getDocuments(),
-          companyHistory: storageService.getCompanyHistory(),
-          finance: storageService.getFinance(),
-          moneyAccounts: storageService.getMoneyAccounts(),
-          salarySettings: storageService.getSalarySettings(),
-          cv: storageService.getCV(),
-          savingsGoal: storageService.getSavings(),
-          dashboardConfig: storageService.getDashboardConfig(),
-        });
-        applyAccountBundle(imported.data);
-      } else {
-        applyAccountBundle(res.data);
-      }
-
-      setSyncError(null);
-      return { token: res.token, user: res.user };
-    } catch {
-      // Offline mode: continue seamlessly with local storage data
-      return null;
+    if (sessionInitPromiseRef.current) {
+      return sessionInitPromiseRef.current;
     }
+
+    const promise = (async () => {
+      try {
+        const savedId = storageService.getDeviceUserId();
+        const res: DeviceAuthResponse = savedId
+          ? await apiClient.connectDevice(savedId, true)
+          : await apiClient.initDevice('Worker');
+
+        storageService.saveDeviceUserId(res.user.id);
+        setAuthToken(res.token);
+        setDeviceUser(res.user);
+        setDeviceSessionError(null);
+
+        // If this device has offline/local records and the server record is blank, upload them
+        const serverIsEmpty =
+          res.data.shifts.length === 0 &&
+          res.data.documents.length === 0 &&
+          res.data.companyHistory.length === 0 &&
+          res.data.finance.length === 0;
+
+        if (serverIsEmpty && storageService.hasLocalRecords()) {
+          const imported = await apiClient.importLocalData(res.token, {
+            shifts: storageService.getShifts(),
+            documents: storageService.getDocuments(),
+            companyHistory: storageService.getCompanyHistory(),
+            finance: storageService.getFinance(),
+            moneyAccounts: storageService.getMoneyAccounts(),
+            salarySettings: storageService.getSalarySettings(),
+            cv: storageService.getCV(),
+            savingsGoal: storageService.getSavings(),
+            dashboardConfig: storageService.getDashboardConfig(),
+          });
+          applyAccountBundle(imported.data);
+        } else {
+          applyAccountBundle(res.data);
+        }
+
+        setSyncError(null);
+        return { token: res.token, user: res.user };
+      } catch (err: unknown) {
+        const msg =
+          err instanceof Error
+            ? err.message
+            : 'Unable to reach sync server right now. Working in offline local mode.';
+        setDeviceSessionError(msg);
+        return null;
+      } finally {
+        sessionInitPromiseRef.current = null;
+      }
+    })();
+
+    sessionInitPromiseRef.current = promise;
+    return promise;
   }, [applyAccountBundle]);
 
-  useEffect(() => {
-    ensureDeviceSession();
-  }, [ensureDeviceSession]);
-
-  // Re-sync automatically when coming back online without a token
+  // Connect on startup and reconnect whenever returning online without an active session token
   useEffect(() => {
     if (isOnline && !authToken) {
       ensureDeviceSession();
@@ -255,6 +276,7 @@ export default function App() {
     storageService.saveDeviceUserId(res.user.id);
     setAuthToken(res.token);
     setDeviceUser(res.user);
+    setDeviceSessionError(null);
     setSyncError(null);
     applyAccountBundle(res.data);
   };
@@ -685,7 +707,20 @@ export default function App() {
         onClose={() => setIsDeviceIdModalOpen(false)}
         language={language}
         deviceUser={deviceUser}
+        isSynced={Boolean(authToken)}
+        sessionError={deviceSessionError}
         onConnected={handleDeviceConnected}
+        onRetryConnect={async () => {
+          await ensureDeviceSession();
+        }}
+        onRefreshSync={async () => {
+          if (authToken) {
+            const res = await apiClient.getAccountData(authToken);
+            applyAccountBundle(res.data);
+          } else {
+            await ensureDeviceSession();
+          }
+        }}
       />
     </div>
   );
