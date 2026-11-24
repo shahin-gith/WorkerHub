@@ -5,28 +5,24 @@ import path from 'node:path';
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { db } from './server/db.ts';
-import { getEmailConfigStatus, sendOtpEmail } from './server/email.ts';
+import { searchSingaporeCompanies, searchWorkerHelpArticles } from './server/gemini.ts';
 
-interface AuthUser {
+interface DeviceUser {
   id: string;
-  email: string;
-  fullName: string;
+  displayName: string;
   role: 'worker' | 'admin';
-  emailVerified: boolean;
+  createdAt: number;
 }
 
 interface AuthenticatedRequest extends Request {
-  user?: AuthUser;
+  user?: DeviceUser;
   sessionTokenHash?: string;
 }
 
 const PORT = 3000;
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const OTP_COOLDOWN_MS = 45 * 1000; // 45 seconds between resends
-const MAX_OTP_ATTEMPTS = 5;
+const SESSION_TTL_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+const MAX_DOC_BYTES = 5 * 1024 * 1024; // 5MB
 
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const ALLOWED_MIME_PREFIXES = [
   'data:image/png;base64,',
   'data:image/jpeg;base64,',
@@ -35,34 +31,17 @@ const ALLOWED_MIME_PREFIXES = [
   'data:application/pdf;base64,',
 ];
 
-function normalizeEmail(email: unknown): string {
-  return typeof email === 'string' ? email.trim().toLowerCase() : '';
-}
-
-function hashSecret(value: string, existingSalt?: string): { hash: string; salt: string } {
-  const salt = existingSalt || crypto.randomBytes(16).toString('hex');
-  const derived = crypto.scryptSync(value, salt, 64).toString('hex');
-  return { hash: derived, salt };
-}
-
-function verifySecret(value: string, storedHash: string, salt: string): boolean {
-  const { hash } = hashSecret(value, salt);
-  const bufA = Buffer.from(hash, 'hex');
-  const bufB = Buffer.from(storedHash, 'hex');
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
-
 function sha256(value: string): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
-function resolveUserRole(email: string): 'worker' | 'admin' {
-  const adminEmail = normalizeEmail(process.env.ADMIN_EMAIL);
-  if (adminEmail && email === adminEmail) {
-    return 'admin';
+function generateUniqueUserId(): string {
+  for (let i = 0; i < 20; i++) {
+    const candidate = String(crypto.randomInt(10000000, 100000000));
+    const existing = db.prepare('SELECT id FROM users WHERE id = ?').get(candidate);
+    if (!existing) return candidate;
   }
-  return 'worker';
+  return String(Date.now()).slice(-8);
 }
 
 function createSessionForUser(userId: string): { token: string; expiresAt: number } {
@@ -78,95 +57,7 @@ function createSessionForUser(userId: string): { token: string; expiresAt: numbe
   return { token, expiresAt };
 }
 
-function issueOtpForEmail(
-  email: string,
-  purpose: 'verify_account' | 'login' | 'reset_password'
-): { otpCode: string } | { error: string; retryAfterSec?: number } {
-  const now = Date.now();
-  const recent = db
-    .prepare(
-      'SELECT created_at FROM otp_codes WHERE email = ? AND purpose = ? ORDER BY created_at DESC LIMIT 1'
-    )
-    .get(email, purpose) as { created_at: number } | undefined;
-
-  if (recent && now - recent.created_at < OTP_COOLDOWN_MS) {
-    const retryAfterSec = Math.ceil((OTP_COOLDOWN_MS - (now - recent.created_at)) / 1000);
-    return {
-      error: `Please wait ${retryAfterSec} seconds before requesting another verification code.`,
-      retryAfterSec,
-    };
-  }
-
-  // Clear older OTPs for the same email & purpose
-  db.prepare('DELETE FROM otp_codes WHERE email = ? AND purpose = ?').run(email, purpose);
-
-  const otpCode = String(crypto.randomInt(100000, 1000000));
-  const { hash, salt } = hashSecret(otpCode);
-
-  db.prepare(
-    `INSERT INTO otp_codes (id, email, purpose, otp_hash, otp_salt, attempts, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, 0, ?, ?)`
-  ).run(crypto.randomUUID(), email, purpose, hash, salt, now + OTP_TTL_MS, now);
-
-  return { otpCode };
-}
-
-function verifyOtpRecord(
-  email: string,
-  purpose: 'verify_account' | 'login' | 'reset_password',
-  otpInput: string
-): { valid: true } | { valid: false; error: string } {
-  const cleanOtp = typeof otpInput === 'string' ? otpInput.trim() : '';
-  if (!/^\d{6}$/.test(cleanOtp)) {
-    return { valid: false, error: 'Please enter the 6-digit numeric verification code.' };
-  }
-
-  const record = db
-    .prepare(
-      'SELECT id, otp_hash, otp_salt, attempts, expires_at FROM otp_codes WHERE email = ? AND purpose = ? ORDER BY created_at DESC LIMIT 1'
-    )
-    .get(email, purpose) as
-    | {
-        id: string;
-        otp_hash: string;
-        otp_salt: string;
-        attempts: number;
-        expires_at: number;
-      }
-    | undefined;
-
-  if (!record) {
-    return { valid: false, error: 'No active verification code found. Please request a new code.' };
-  }
-
-  if (Date.now() > record.expires_at) {
-    db.prepare('DELETE FROM otp_codes WHERE id = ?').run(record.id);
-    return { valid: false, error: 'Verification code has expired. Please request a new code.' };
-  }
-
-  if (record.attempts >= MAX_OTP_ATTEMPTS) {
-    db.prepare('DELETE FROM otp_codes WHERE id = ?').run(record.id);
-    return { valid: false, error: 'Too many invalid attempts. Please request a new verification code.' };
-  }
-
-  const matches = verifySecret(cleanOtp, record.otp_hash, record.otp_salt);
-  if (!matches) {
-    db.prepare('UPDATE otp_codes SET attempts = attempts + 1 WHERE id = ?').run(record.id);
-    const remaining = MAX_OTP_ATTEMPTS - (record.attempts + 1);
-    return {
-      valid: false,
-      error:
-        remaining > 0
-          ? `Incorrect verification code. ${remaining} attempts remaining.`
-          : 'Too many invalid attempts. Please request a new verification code.',
-    };
-  }
-
-  db.prepare('DELETE FROM otp_codes WHERE id = ?').run(record.id);
-  return { valid: true };
-}
-
-function extractBearerUser(req: AuthenticatedRequest): AuthUser | null {
+function extractBearerUser(req: AuthenticatedRequest): DeviceUser | null {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) return null;
   const token = header.slice('Bearer '.length).trim();
@@ -175,7 +66,7 @@ function extractBearerUser(req: AuthenticatedRequest): AuthUser | null {
   const tokenHash = sha256(token);
   const row = db
     .prepare(
-      `SELECT u.id, u.email, u.full_name, u.role, u.email_verified, s.expires_at
+      `SELECT u.id, u.display_name, u.role, u.created_at, s.expires_at
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = ?`
@@ -183,10 +74,9 @@ function extractBearerUser(req: AuthenticatedRequest): AuthUser | null {
     .get(tokenHash) as
     | {
         id: string;
-        email: string;
-        full_name: string;
+        display_name: string;
         role: 'worker' | 'admin';
-        email_verified: number;
+        created_at: number;
         expires_at: number;
       }
     | undefined;
@@ -200,17 +90,16 @@ function extractBearerUser(req: AuthenticatedRequest): AuthUser | null {
   req.sessionTokenHash = tokenHash;
   return {
     id: row.id,
-    email: row.email,
-    fullName: row.full_name,
+    displayName: row.display_name,
     role: row.role,
-    emailVerified: row.email_verified === 1,
+    createdAt: row.created_at,
   };
 }
 
 function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const user = extractBearerUser(req);
-  if (!user || !user.emailVerified) {
-    res.status(401).json({ error: 'Authentication required. Please sign in with your verified email.' });
+  if (!user) {
+    res.status(401).json({ error: 'Device session expired. Reconnecting with your User ID.' });
     return;
   }
   req.user = user;
@@ -256,7 +145,8 @@ function loadUserDataBundle(userId: string) {
 
   const finance = db
     .prepare(
-      `SELECT id, type, category, amount_sgd AS amountSgd, amount_foreign AS amountForeign,
+      `SELECT id, type, category, account_id AS accountId, account_name AS accountName,
+              amount_sgd AS amountSgd, amount_foreign AS amountForeign,
               foreign_currency AS foreignCurrency, exchange_rate AS exchangeRate,
               date, notes, created_at AS createdAt
        FROM user_finance WHERE user_id = ? ORDER BY date DESC`
@@ -265,7 +155,7 @@ function loadUserDataBundle(userId: string) {
 
   const profileRow = db
     .prepare(
-      `SELECT salary_settings_json, cv_json, savings_goal_json, dashboard_config_json
+      `SELECT salary_settings_json, cv_json, savings_goal_json, money_accounts_json, dashboard_config_json
        FROM user_profiles_json WHERE user_id = ?`
     )
     .get(userId) as
@@ -273,6 +163,7 @@ function loadUserDataBundle(userId: string) {
         salary_settings_json: string | null;
         cv_json: string | null;
         savings_goal_json: string | null;
+        money_accounts_json: string | null;
         dashboard_config_json: string | null;
       }
     | undefined;
@@ -294,13 +185,19 @@ function loadUserDataBundle(userId: string) {
     salarySettings: parseJson(profileRow?.salary_settings_json),
     cv: parseJson(profileRow?.cv_json),
     savingsGoal: parseJson(profileRow?.savings_goal_json),
+    moneyAccounts: parseJson(profileRow?.money_accounts_json),
     dashboardConfig: parseJson(profileRow?.dashboard_config_json),
   };
 }
 
 function upsertProfileField(
   userId: string,
-  column: 'salary_settings_json' | 'cv_json' | 'savings_goal_json' | 'dashboard_config_json',
+  column:
+    | 'salary_settings_json'
+    | 'cv_json'
+    | 'savings_goal_json'
+    | 'money_accounts_json'
+    | 'dashboard_config_json',
   payload: unknown
 ) {
   const now = Date.now();
@@ -314,391 +211,133 @@ function upsertProfileField(
 
 function validateFileDataUrl(fileDataUrl: unknown): string {
   if (typeof fileDataUrl !== 'string' || !fileDataUrl) return '';
-  if (fileDataUrl.length > 3 * 1024 * 1024) {
-    throw new Error('Attached file exceeds maximum allowed size (2MB).');
-  }
-  const hasAllowedMime = ALLOWED_MIME_PREFIXES.some((prefix) => fileDataUrl.startsWith(prefix));
-  if (!hasAllowedMime) {
+  const prefix = ALLOWED_MIME_PREFIXES.find((p) => fileDataUrl.startsWith(p));
+  if (!prefix) {
     throw new Error('Only PNG, JPEG, WEBP images or PDF files are allowed.');
+  }
+  const base64Body = fileDataUrl.slice(prefix.length);
+  const estimatedBytes = Math.ceil((base64Body.length * 3) / 4);
+  if (estimatedBytes > MAX_DOC_BYTES + 1024) {
+    throw new Error('Attached file exceeds maximum allowed size (5MB).');
   }
   return fileDataUrl;
 }
 
 async function createServer() {
   const app = express();
-  app.use(express.json({ limit: '6mb' }));
+  app.use(express.json({ limit: '10mb' }));
 
   // ==========================================
-  // 1. AUTH & EMAIL OTP ENDPOINTS
+  // 1. DEVICE USER ID & CROSS-DEVICE SYNC AUTH
   // ==========================================
 
-  app.get('/api/auth/status', (_req, res) => {
-    res.json(getEmailConfigStatus());
+  // Auto-generate a unique 8-digit User ID for this device
+  app.post('/api/device/init', (req, res) => {
+    const requestedName =
+      typeof req.body?.displayName === 'string' && req.body.displayName.trim()
+        ? req.body.displayName.trim().slice(0, 60)
+        : 'Worker';
+
+    const userId = generateUniqueUserId();
+    const now = Date.now();
+
+    db.prepare(
+      `INSERT INTO users (id, display_name, role, created_at, updated_at)
+       VALUES (?, ?, 'worker', ?, ?)`
+    ).run(userId, requestedName, now, now);
+
+    const session = createSessionForUser(userId);
+    const data = loadUserDataBundle(userId);
+
+    res.json({
+      token: session.token,
+      user: {
+        id: userId,
+        displayName: requestedName,
+        role: 'worker' as const,
+        createdAt: now,
+      },
+      data,
+    });
   });
 
-  app.get('/api/auth/me', requireAuth, (req: AuthenticatedRequest, res) => {
+  // Connect current device to an existing User ID (or auto-restore on reload)
+  app.post('/api/device/connect', (req, res) => {
+    const rawId = typeof req.body?.userId === 'string' ? req.body.userId.replace(/\s+/g, '') : '';
+    const autoCreateIfMissing = Boolean(req.body?.autoCreateIfMissing);
+
+    if (!/^\d{6,12}$/.test(rawId)) {
+      res.status(400).json({ error: 'Please enter a valid numeric User ID (6–12 digits).' });
+      return;
+    }
+
+    let userRow = db
+      .prepare('SELECT id, display_name, role, created_at FROM users WHERE id = ?')
+      .get(rawId) as
+      | { id: string; display_name: string; role: 'worker' | 'admin'; created_at: number }
+      | undefined;
+
+    if (!userRow) {
+      if (!autoCreateIfMissing) {
+        res.status(404).json({
+          error: `User ID "${rawId}" was not found. Please check the number from your other device.`,
+        });
+        return;
+      }
+      const now = Date.now();
+      db.prepare(
+        `INSERT INTO users (id, display_name, role, created_at, updated_at)
+         VALUES (?, 'Worker', 'worker', ?, ?)`
+      ).run(rawId, now, now);
+      userRow = { id: rawId, display_name: 'Worker', role: 'worker', created_at: now };
+    }
+
+    const session = createSessionForUser(userRow.id);
+    const data = loadUserDataBundle(userRow.id);
+
+    res.json({
+      token: session.token,
+      user: {
+        id: userRow.id,
+        displayName: userRow.display_name,
+        role: userRow.role,
+        createdAt: userRow.created_at,
+      },
+      data,
+    });
+  });
+
+  app.get('/api/device/me', requireAuth, (req: AuthenticatedRequest, res) => {
     res.json({ user: req.user });
   });
 
-  // Open an account (Step 1: register details & send 6-digit OTP to email)
-  app.post('/api/auth/register', async (req, res) => {
-    try {
-      const email = normalizeEmail(req.body?.email);
-      const fullName = typeof req.body?.fullName === 'string' ? req.body.fullName.trim() : '';
-      const password = typeof req.body?.password === 'string' ? req.body.password : '';
-
-      if (!EMAIL_REGEX.test(email)) {
-        res.status(400).json({ error: 'Please enter a valid email address.' });
-        return;
-      }
-      if (fullName.length < 2 || fullName.length > 80) {
-        res.status(400).json({ error: 'Please enter your full name (2–80 characters).' });
-        return;
-      }
-      if (password.length < 8 || password.length > 128) {
-        res.status(400).json({ error: 'Password must be at least 8 characters long.' });
-        return;
-      }
-
-      const emailConfig = getEmailConfigStatus();
-      if (!emailConfig.emailConfigured) {
-        res.status(503).json({
-          error:
-            'Email service is not configured yet. Set SMTP_USER and SMTP_PASS (or RESEND_API_KEY) in Secrets to send OTP verification emails.',
-        });
-        return;
-      }
-
-      const existing = db
-        .prepare('SELECT id, email_verified FROM users WHERE email = ?')
-        .get(email) as { id: string; email_verified: number } | undefined;
-
-      if (existing && existing.email_verified === 1) {
-        res.status(409).json({
-          error: 'An account with this email already exists. Please sign in instead.',
-        });
-        return;
-      }
-
-      const otpResult = issueOtpForEmail(email, 'verify_account');
-      if ('error' in otpResult) {
-        res.status(429).json({ error: otpResult.error });
-        return;
-      }
-
-      const { hash, salt } = hashSecret(password);
-      const now = Date.now();
-
-      if (existing) {
-        db.prepare(
-          'UPDATE users SET full_name = ?, password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?'
-        ).run(fullName, hash, salt, now, existing.id);
-      } else {
-        db.prepare(
-          `INSERT INTO users (id, email, full_name, password_hash, password_salt, email_verified, role, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, 0, 'worker', ?, ?)`
-        ).run(crypto.randomUUID(), email, fullName, hash, salt, now, now);
-      }
-
-      await sendOtpEmail({
-        toEmail: email,
-        recipientName: fullName,
-        otpCode: otpResult.otpCode,
-        purpose: 'verify_account',
-      });
-
-      res.json({
-        sent: true,
-        message: `A 6-digit verification code has been sent to ${email}.`,
-      });
-    } catch (err: unknown) {
-      res.status(500).json({
-        error: (err as Error).message || 'Failed to send verification code.',
-      });
-    }
-  });
-
-  // Verify account opening OTP (Step 2: verify OTP -> activate account & issue Bearer session)
-  app.post('/api/auth/verify-registration', (req, res) => {
-    const email = normalizeEmail(req.body?.email);
-    const otp = req.body?.otp;
-
-    if (!EMAIL_REGEX.test(email)) {
-      res.status(400).json({ error: 'Invalid email address.' });
+  app.patch('/api/device/profile', requireAuth, (req: AuthenticatedRequest, res) => {
+    const displayName =
+      typeof req.body?.displayName === 'string' ? req.body.displayName.trim().slice(0, 60) : '';
+    if (displayName.length < 2) {
+      res.status(400).json({ error: 'Name must be at least 2 characters.' });
       return;
     }
-
-    const user = db
-      .prepare('SELECT id, email, full_name, email_verified FROM users WHERE email = ?')
-      .get(email) as
-      | { id: string; email: string; full_name: string; email_verified: number }
-      | undefined;
-
-    if (!user) {
-      res.status(404).json({ error: 'Registration record not found. Please open an account again.' });
-      return;
-    }
-
-    const verification = verifyOtpRecord(email, 'verify_account', otp);
-    if (!verification.valid) {
-      res.status(400).json({ error: verification.error });
-      return;
-    }
-
-    const role = resolveUserRole(email);
-    db.prepare('UPDATE users SET email_verified = 1, role = ?, updated_at = ? WHERE id = ?').run(
-      role,
+    db.prepare('UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?').run(
+      displayName,
       Date.now(),
-      user.id
+      req.user!.id
     );
-
-    const session = createSessionForUser(user.id);
-    const data = loadUserDataBundle(user.id);
-
     res.json({
-      token: session.token,
       user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.full_name,
-        role,
-        emailVerified: true,
+        ...req.user!,
+        displayName,
       },
-      data,
     });
   });
 
-  // Resend registration or login OTP
-  app.post('/api/auth/send-otp', async (req, res) => {
-    try {
-      const email = normalizeEmail(req.body?.email);
-      const purpose =
-        req.body?.purpose === 'verify_account' || req.body?.purpose === 'reset_password'
-          ? req.body.purpose
-          : 'login';
-
-      if (!EMAIL_REGEX.test(email)) {
-        res.status(400).json({ error: 'Please enter a valid email address.' });
-        return;
-      }
-
-      const emailConfig = getEmailConfigStatus();
-      if (!emailConfig.emailConfigured) {
-        res.status(503).json({
-          error:
-            'Email service is not configured yet. Set SMTP_USER and SMTP_PASS (or RESEND_API_KEY) in Secrets to send OTP verification emails.',
-        });
-        return;
-      }
-
-      const user = db
-        .prepare('SELECT id, full_name, email_verified FROM users WHERE email = ?')
-        .get(email) as { id: string; full_name: string; email_verified: number } | undefined;
-
-      if (!user) {
-        res.status(404).json({ error: 'No account found with this email. Please open an account first.' });
-        return;
-      }
-
-      if ((purpose === 'login' || purpose === 'reset_password') && user.email_verified !== 1) {
-        res.status(403).json({
-          error: 'This email is not verified yet. Please complete account verification first.',
-        });
-        return;
-      }
-
-      const otpResult = issueOtpForEmail(email, purpose);
-      if ('error' in otpResult) {
-        res.status(429).json({ error: otpResult.error });
-        return;
-      }
-
-      await sendOtpEmail({
-        toEmail: email,
-        recipientName: user.full_name,
-        otpCode: otpResult.otpCode,
-        purpose,
-      });
-
-      res.json({
-        sent: true,
-        message: `Verification code sent to ${email}.`,
-      });
-    } catch (err: unknown) {
-      res.status(500).json({
-        error: (err as Error).message || 'Failed to send verification email.',
-      });
-    }
-  });
-
-  // Sign in with Email + Password
-  app.post('/api/auth/login', (req, res) => {
-    const email = normalizeEmail(req.body?.email);
-    const password = typeof req.body?.password === 'string' ? req.body.password : '';
-
-    if (!EMAIL_REGEX.test(email) || !password) {
-      res.status(400).json({ error: 'Email and password are required.' });
-      return;
-    }
-
-    const user = db
-      .prepare(
-        'SELECT id, email, full_name, password_hash, password_salt, email_verified, role FROM users WHERE email = ?'
-      )
-      .get(email) as
-      | {
-          id: string;
-          email: string;
-          full_name: string;
-          password_hash: string;
-          password_salt: string;
-          email_verified: number;
-          role: 'worker' | 'admin';
-        }
-      | undefined;
-
-    if (!user || !verifySecret(password, user.password_hash, user.password_salt)) {
-      res.status(401).json({ error: 'Invalid email or password.' });
-      return;
-    }
-
-    if (user.email_verified !== 1) {
-      res.status(403).json({
-        error: 'Your email has not been verified yet. Please verify your OTP code first.',
-        needsVerification: true,
-      });
-      return;
-    }
-
-    const role = resolveUserRole(email);
-    if (role !== user.role) {
-      db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, user.id);
-    }
-
-    const session = createSessionForUser(user.id);
-    const data = loadUserDataBundle(user.id);
-
-    res.json({
-      token: session.token,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.full_name,
-        role,
-        emailVerified: true,
-      },
-      data,
-    });
-  });
-
-  // Sign in with Email + OTP (passwordless login)
-  app.post('/api/auth/login-otp', (req, res) => {
-    const email = normalizeEmail(req.body?.email);
-    const otp = req.body?.otp;
-
-    if (!EMAIL_REGEX.test(email)) {
-      res.status(400).json({ error: 'Invalid email address.' });
-      return;
-    }
-
-    const user = db
-      .prepare('SELECT id, email, full_name, email_verified, role FROM users WHERE email = ?')
-      .get(email) as
-      | { id: string; email: string; full_name: string; email_verified: number; role: 'worker' | 'admin' }
-      | undefined;
-
-    if (!user || user.email_verified !== 1) {
-      res.status(404).json({ error: 'Verified account not found for this email.' });
-      return;
-    }
-
-    const verification = verifyOtpRecord(email, 'login', otp);
-    if (!verification.valid) {
-      res.status(400).json({ error: verification.error });
-      return;
-    }
-
-    const role = resolveUserRole(email);
-    if (role !== user.role) {
-      db.prepare('UPDATE users SET role = ? WHERE id = ?').run(role, user.id);
-    }
-
-    const session = createSessionForUser(user.id);
-    const data = loadUserDataBundle(user.id);
-
-    res.json({
-      token: session.token,
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.full_name,
-        role,
-        emailVerified: true,
-      },
-      data,
-    });
-  });
-
-  // Reset Password using Email OTP
-  app.post('/api/auth/reset-password', (req, res) => {
-    const email = normalizeEmail(req.body?.email);
-    const otp = req.body?.otp;
-    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
-
-    if (!EMAIL_REGEX.test(email)) {
-      res.status(400).json({ error: 'Invalid email address.' });
-      return;
-    }
-    if (newPassword.length < 8 || newPassword.length > 128) {
-      res.status(400).json({ error: 'New password must be at least 8 characters long.' });
-      return;
-    }
-
-    const user = db
-      .prepare('SELECT id, email_verified FROM users WHERE email = ?')
-      .get(email) as { id: string; email_verified: number } | undefined;
-
-    if (!user || user.email_verified !== 1) {
-      res.status(404).json({ error: 'Verified account not found.' });
-      return;
-    }
-
-    const verification = verifyOtpRecord(email, 'reset_password', otp);
-    if (!verification.valid) {
-      res.status(400).json({ error: verification.error });
-      return;
-    }
-
-    const { hash, salt } = hashSecret(newPassword);
-    db.prepare('UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?').run(
-      hash,
-      salt,
-      Date.now(),
-      user.id
-    );
-    // Invalidate existing sessions on password reset
-    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id);
-
-    res.json({ success: true, message: 'Password updated successfully. Please sign in.' });
-  });
-
-  // Sign out
-  app.post('/api/auth/logout', requireAuth, (req: AuthenticatedRequest, res) => {
-    if (req.sessionTokenHash) {
-      db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(req.sessionTokenHash);
-    }
-    res.json({ success: true });
-  });
-
-  // Delete account and all cloud records
-  app.delete('/api/auth/account', requireAuth, (req: AuthenticatedRequest, res) => {
-    const userId = req.user!.id;
-    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+  app.delete('/api/device/account', requireAuth, (req: AuthenticatedRequest, res) => {
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.user!.id);
     res.json({ success: true });
   });
 
   // ==========================================
-  // 2. USER ACCOUNT DATA SYNC ENDPOINTS
+  // 2. USER WORKSPACE DATA SYNC ENDPOINTS
   // ==========================================
 
   app.get('/api/account/data', requireAuth, (req: AuthenticatedRequest, res) => {
@@ -706,7 +345,6 @@ async function createServer() {
     res.json({ data });
   });
 
-  // Explicit user-approved import of local records into account
   app.post('/api/account/import-local', requireAuth, (req: AuthenticatedRequest, res) => {
     try {
       const userId = req.user!.id;
@@ -815,11 +453,13 @@ async function createServer() {
       if (Array.isArray(body.finance)) {
         const stmt = db.prepare(
           `INSERT INTO user_finance (
-             id, user_id, type, category, amount_sgd, amount_foreign,
-             foreign_currency, exchange_rate, date, notes, created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             id, user_id, type, category, account_id, account_name,
+             amount_sgd, amount_foreign, foreign_currency, exchange_rate,
+             date, notes, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(user_id, id) DO UPDATE SET
              type = excluded.type, category = excluded.category,
+             account_id = excluded.account_id, account_name = excluded.account_name,
              amount_sgd = excluded.amount_sgd, amount_foreign = excluded.amount_foreign,
              foreign_currency = excluded.foreign_currency, exchange_rate = excluded.exchange_rate,
              date = excluded.date, notes = excluded.notes`
@@ -831,6 +471,8 @@ async function createServer() {
             userId,
             String(f.type || 'expense'),
             String(f.category || 'other'),
+            String(f.accountId || 'acc-cash'),
+            String(f.accountName || 'Cash Wallet'),
             Number(f.amountSgd) || 0,
             f.amountForeign != null ? Number(f.amountForeign) : null,
             f.foreignCurrency ? String(f.foreignCurrency) : null,
@@ -851,13 +493,16 @@ async function createServer() {
       if (body.savingsGoal) {
         upsertProfileField(userId, 'savings_goal_json', body.savingsGoal);
       }
+      if (Array.isArray(body.moneyAccounts)) {
+        upsertProfileField(userId, 'money_accounts_json', body.moneyAccounts);
+      }
       if (body.dashboardConfig) {
         upsertProfileField(userId, 'dashboard_config_json', body.dashboardConfig);
       }
 
       res.json({ data: loadUserDataBundle(userId) });
     } catch (err: unknown) {
-      res.status(400).json({ error: (err as Error).message || 'Failed to import local records.' });
+      res.status(400).json({ error: (err as Error).message || 'Failed to import records.' });
     }
   });
 
@@ -911,7 +556,7 @@ async function createServer() {
     res.json({ success: true });
   });
 
-  // Documents CRUD
+  // Documents CRUD (up to 5MB)
   app.post('/api/account/documents', requireAuth, (req: AuthenticatedRequest, res) => {
     try {
       const userId = req.user!.id;
@@ -1005,7 +650,7 @@ async function createServer() {
     res.json({ success: true });
   });
 
-  // Finance CRUD
+  // Finance CRUD (with money source accountId & accountName)
   app.post('/api/account/finance', requireAuth, (req: AuthenticatedRequest, res) => {
     const userId = req.user!.id;
     const f = req.body;
@@ -1016,11 +661,13 @@ async function createServer() {
 
     db.prepare(
       `INSERT INTO user_finance (
-         id, user_id, type, category, amount_sgd, amount_foreign,
-         foreign_currency, exchange_rate, date, notes, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         id, user_id, type, category, account_id, account_name,
+         amount_sgd, amount_foreign, foreign_currency, exchange_rate,
+         date, notes, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id, id) DO UPDATE SET
          type = excluded.type, category = excluded.category,
+         account_id = excluded.account_id, account_name = excluded.account_name,
          amount_sgd = excluded.amount_sgd, amount_foreign = excluded.amount_foreign,
          foreign_currency = excluded.foreign_currency, exchange_rate = excluded.exchange_rate,
          date = excluded.date, notes = excluded.notes`
@@ -1029,6 +676,8 @@ async function createServer() {
       userId,
       String(f.type || 'expense'),
       String(f.category || 'other'),
+      String(f.accountId || 'acc-cash'),
+      String(f.accountName || 'Cash Wallet'),
       Number(f.amountSgd) || 0,
       f.amountForeign != null ? Number(f.amountForeign) : null,
       f.foreignCurrency ? String(f.foreignCurrency) : null,
@@ -1048,7 +697,7 @@ async function createServer() {
     res.json({ success: true });
   });
 
-  // JSON Profile Settings (Salary settings, CV, Savings goal, Dashboard config)
+  // JSON Profile Settings (Salary, CV, Savings, Money Accounts, Dashboard config)
   app.put('/api/account/salary-settings', requireAuth, (req: AuthenticatedRequest, res) => {
     upsertProfileField(req.user!.id, 'salary_settings_json', req.body);
     res.json({ success: true });
@@ -1064,64 +713,92 @@ async function createServer() {
     res.json({ success: true });
   });
 
+  app.put('/api/account/money-accounts', requireAuth, (req: AuthenticatedRequest, res) => {
+    if (!Array.isArray(req.body)) {
+      res.status(400).json({ error: 'Money accounts list must be an array.' });
+      return;
+    }
+    upsertProfileField(req.user!.id, 'money_accounts_json', req.body);
+    res.json({ success: true });
+  });
+
   app.put('/api/account/dashboard-config', requireAuth, (req: AuthenticatedRequest, res) => {
     upsertProfileField(req.user!.id, 'dashboard_config_json', req.body);
     res.json({ success: true });
   });
 
   // ==========================================
-  // 3. MODERATED COMPANY REVIEWS ENDPOINTS
+  // 3. GOOGLE LIVE COMPANY SEARCH & REVIEWS
   // ==========================================
+
+  app.get('/api/companies/search', async (req, res) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+      if (q.length < 2) {
+        res.status(400).json({ error: 'Enter at least 2 characters to search companies.' });
+        return;
+      }
+      const result = await searchSingaporeCompanies(q.slice(0, 100));
+      res.json(result);
+    } catch (err: unknown) {
+      res.status(502).json({
+        error: (err as Error).message || 'Live Google company search failed.',
+      });
+    }
+  });
 
   app.get('/api/reviews', (req: AuthenticatedRequest, res) => {
     const user = extractBearerUser(req);
-    const isAdmin = user?.role === 'admin';
+    const currentUserId = user?.id || '';
 
-    const rows = isAdmin
-      ? db
-          .prepare(
-            `SELECT id, company_name AS companyName, industry,
-                    rating_work_env AS ratingWorkEnv, rating_salary_payment AS ratingSalaryPayment,
-                    rating_accommodation AS ratingAccommodation, rating_management AS ratingManagement,
-                    title, comment, employment_status AS employmentStatus,
-                    status, created_at AS createdAt
-             FROM company_reviews ORDER BY created_at DESC`
-          )
-          .all()
-      : db
-          .prepare(
-            `SELECT id, company_name AS companyName, industry,
-                    rating_work_env AS ratingWorkEnv, rating_salary_payment AS ratingSalaryPayment,
-                    rating_accommodation AS ratingAccommodation, rating_management AS ratingManagement,
-                    title, comment, employment_status AS employmentStatus,
-                    status, created_at AS createdAt
-             FROM company_reviews WHERE status = 'approved' ORDER BY created_at DESC`
-          )
-          .all();
+    const rows = db
+      .prepare(
+        `SELECT r.id, r.user_id AS userId, r.company_name AS companyName, r.industry,
+                r.rating_work_env AS ratingWorkEnv, r.rating_salary_payment AS ratingSalaryPayment,
+                r.rating_accommodation AS ratingAccommodation, r.rating_management AS ratingManagement,
+                r.title, r.comment, r.employment_status AS employmentStatus,
+                r.status, r.likes_count AS likesCount, r.google_source_url AS googleSourceUrl,
+                r.created_at AS createdAt,
+                CASE WHEN rl.user_id IS NOT NULL THEN 1 ELSE 0 END AS likedByMe
+         FROM company_reviews r
+         LEFT JOIN review_likes rl ON rl.review_id = r.id AND rl.user_id = ?
+         WHERE r.status = 'approved'
+         ORDER BY r.created_at DESC`
+      )
+      .all(currentUserId) as Array<Record<string, unknown>>;
 
-    res.json({ reviews: rows, isAdmin });
+    const reviews = rows.map((row) => ({
+      ...row,
+      likedByMe: row.likedByMe === 1,
+    }));
+
+    res.json({ reviews });
   });
 
   app.post('/api/reviews', requireAuth, (req: AuthenticatedRequest, res) => {
     const r = req.body;
     const companyName = typeof r?.companyName === 'string' ? r.companyName.trim() : '';
     const comment = typeof r?.comment === 'string' ? r.comment.trim() : '';
+    const googleSourceUrl =
+      typeof r?.googleSourceUrl === 'string' &&
+      (r.googleSourceUrl.startsWith('https://') || r.googleSourceUrl.startsWith('http://'))
+        ? r.googleSourceUrl.trim().slice(0, 500)
+        : '';
 
     if (!companyName || !comment) {
-      res.status(400).json({ error: 'Company name and experience comment are required.' });
+      res.status(400).json({ error: 'Company name and experience review text are required.' });
       return;
     }
 
     const id = crypto.randomUUID();
     const now = Date.now();
 
-    // Always force 'pending' status — never auto-publish
     db.prepare(
       `INSERT INTO company_reviews (
          id, user_id, company_name, industry, rating_work_env, rating_salary_payment,
          rating_accommodation, rating_management, title, comment, employment_status,
-         status, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`
+         status, likes_count, google_source_url, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', 0, ?, ?)`
     ).run(
       id,
       req.user!.id,
@@ -1134,10 +811,52 @@ async function createServer() {
       String(r.title || '').trim().slice(0, 140),
       comment.slice(0, 1500),
       r.employmentStatus === 'Former Worker' ? 'Former Worker' : 'Current Worker',
+      googleSourceUrl,
       now
     );
 
     res.json({ success: true, id });
+  });
+
+  app.post('/api/reviews/:id/like', requireAuth, (req: AuthenticatedRequest, res) => {
+    const reviewId = req.params.id;
+    const userId = req.user!.id;
+
+    const exists = db.prepare('SELECT id FROM company_reviews WHERE id = ?').get(reviewId);
+    if (!exists) {
+      res.status(404).json({ error: 'Review not found.' });
+      return;
+    }
+
+    const existingLike = db
+      .prepare('SELECT 1 FROM review_likes WHERE review_id = ? AND user_id = ?')
+      .get(reviewId, userId);
+
+    if (existingLike) {
+      db.prepare('DELETE FROM review_likes WHERE review_id = ? AND user_id = ?').run(
+        reviewId,
+        userId
+      );
+      db.prepare(
+        'UPDATE company_reviews SET likes_count = MAX(0, likes_count - 1) WHERE id = ?'
+      ).run(reviewId);
+    } else {
+      db.prepare(
+        'INSERT INTO review_likes (review_id, user_id, created_at) VALUES (?, ?, ?)'
+      ).run(reviewId, userId, Date.now());
+      db.prepare('UPDATE company_reviews SET likes_count = likes_count + 1 WHERE id = ?').run(
+        reviewId
+      );
+    }
+
+    const updated = db
+      .prepare('SELECT likes_count AS likesCount FROM company_reviews WHERE id = ?')
+      .get(reviewId) as { likesCount: number };
+
+    res.json({
+      likedByMe: !existingLike,
+      likesCount: updated?.likesCount ?? 0,
+    });
   });
 
   app.post('/api/reviews/:id/report', requireAuth, (req: AuthenticatedRequest, res) => {
@@ -1145,30 +864,162 @@ async function createServer() {
     res.json({ success: true });
   });
 
-  app.patch('/api/reviews/:id/moderate', requireAuth, (req: AuthenticatedRequest, res) => {
-    if (req.user?.role !== 'admin') {
-      res.status(403).json({ error: 'Administrator permission required to moderate reviews.' });
-      return;
-    }
-    const status = req.body?.status === 'approved' ? 'approved' : 'flagged';
-    db.prepare('UPDATE company_reviews SET status = ? WHERE id = ?').run(status, req.params.id);
-    res.json({ success: true });
-  });
-
   app.delete('/api/reviews/:id', requireAuth, (req: AuthenticatedRequest, res) => {
-    if (req.user?.role === 'admin') {
-      db.prepare('DELETE FROM company_reviews WHERE id = ?').run(req.params.id);
-    } else {
-      db.prepare('DELETE FROM company_reviews WHERE id = ? AND user_id = ?').run(
-        req.params.id,
-        req.user!.id
-      );
-    }
+    db.prepare('DELETE FROM company_reviews WHERE id = ? AND user_id = ?').run(
+      req.params.id,
+      req.user!.id
+    );
     res.json({ success: true });
   });
 
   // ==========================================
-  // 4. VITE DEV MIDDLEWARE OR PRODUCTION STATIC
+  // 4. WORKER HELP ARTICLES & GOOGLE ARTICLE SEARCH
+  // ==========================================
+
+  app.get('/api/help/search', async (req, res) => {
+    try {
+      const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+      const lang = req.query.lang === 'bn' ? 'bn' : 'en';
+      if (q.length < 2) {
+        res.status(400).json({ error: 'Enter at least 2 characters to search articles.' });
+        return;
+      }
+      const result = await searchWorkerHelpArticles(q.slice(0, 120), lang);
+      res.json(result);
+    } catch (err: unknown) {
+      res.status(502).json({
+        error: (err as Error).message || 'Live article search failed.',
+      });
+    }
+  });
+
+  app.get('/api/help/articles', (req: AuthenticatedRequest, res) => {
+    const user = extractBearerUser(req);
+    const currentUserId = user?.id || '';
+
+    const rows = db
+      .prepare(
+        `SELECT a.id, a.user_id AS userId, a.title, a.category, a.summary, a.content,
+                a.language, a.author_label AS authorLabel, a.source_url AS sourceUrl,
+                a.likes_count AS likesCount, a.created_at AS createdAt,
+                CASE WHEN al.user_id IS NOT NULL THEN 1 ELSE 0 END AS likedByMe
+         FROM help_articles a
+         LEFT JOIN help_article_likes al ON al.article_id = a.id AND al.user_id = ?
+         ORDER BY a.created_at DESC`
+      )
+      .all(currentUserId) as Array<Record<string, unknown>>;
+
+    const articles = rows.map((row) => ({
+      ...row,
+      likedByMe: row.likedByMe === 1,
+      isOwner: Boolean(currentUserId && row.userId === currentUserId),
+    }));
+
+    res.json({ articles });
+  });
+
+  app.post('/api/help/articles', requireAuth, (req: AuthenticatedRequest, res) => {
+    const body = req.body || {};
+    const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const content = typeof body.content === 'string' ? body.content.trim() : '';
+    const summary =
+      typeof body.summary === 'string' && body.summary.trim()
+        ? body.summary.trim()
+        : content.slice(0, 180);
+
+    if (title.length < 3 || content.length < 10) {
+      res.status(400).json({ error: 'Please provide an article title and detailed content.' });
+      return;
+    }
+
+    const validCats = new Set(['salary', 'safety', 'medical', 'housing', 'remittance', 'general']);
+    const category = validCats.has(body.category) ? body.category : 'general';
+    const language = body.language === 'bn' ? 'bn' : 'en';
+    const sourceUrl =
+      typeof body.sourceUrl === 'string' &&
+      (body.sourceUrl.startsWith('https://') || body.sourceUrl.startsWith('http://'))
+        ? body.sourceUrl.trim().slice(0, 500)
+        : '';
+    const authorLabel =
+      typeof body.authorLabel === 'string' && body.authorLabel.trim()
+        ? body.authorLabel.trim().slice(0, 50)
+        : `Worker #${req.user!.id.slice(-4)}`;
+
+    const id = crypto.randomUUID();
+    const now = Date.now();
+
+    db.prepare(
+      `INSERT INTO help_articles (
+         id, user_id, title, category, summary, content, language,
+         author_label, source_url, likes_count, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+    ).run(
+      id,
+      req.user!.id,
+      title.slice(0, 160),
+      category,
+      summary.slice(0, 300),
+      content.slice(0, 4000),
+      language,
+      authorLabel,
+      sourceUrl,
+      now
+    );
+
+    res.json({ success: true, id });
+  });
+
+  app.post('/api/help/articles/:id/like', requireAuth, (req: AuthenticatedRequest, res) => {
+    const articleId = req.params.id;
+    const userId = req.user!.id;
+
+    const exists = db.prepare('SELECT id FROM help_articles WHERE id = ?').get(articleId);
+    if (!exists) {
+      res.status(404).json({ error: 'Article not found.' });
+      return;
+    }
+
+    const existing = db
+      .prepare('SELECT 1 FROM help_article_likes WHERE article_id = ? AND user_id = ?')
+      .get(articleId, userId);
+
+    if (existing) {
+      db.prepare('DELETE FROM help_article_likes WHERE article_id = ? AND user_id = ?').run(
+        articleId,
+        userId
+      );
+      db.prepare(
+        'UPDATE help_articles SET likes_count = MAX(0, likes_count - 1) WHERE id = ?'
+      ).run(articleId);
+    } else {
+      db.prepare(
+        'INSERT INTO help_article_likes (article_id, user_id, created_at) VALUES (?, ?, ?)'
+      ).run(articleId, userId, Date.now());
+      db.prepare('UPDATE help_articles SET likes_count = likes_count + 1 WHERE id = ?').run(
+        articleId
+      );
+    }
+
+    const updated = db
+      .prepare('SELECT likes_count AS likesCount FROM help_articles WHERE id = ?')
+      .get(articleId) as { likesCount: number };
+
+    res.json({
+      likedByMe: !existing,
+      likesCount: updated?.likesCount ?? 0,
+    });
+  });
+
+  app.delete('/api/help/articles/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+    db.prepare('DELETE FROM help_articles WHERE id = ? AND user_id = ?').run(
+      req.params.id,
+      req.user!.id
+    );
+    res.json({ success: true });
+  });
+
+  // ==========================================
+  // 5. VITE DEV MIDDLEWARE OR PRODUCTION STATIC
   // ==========================================
   const isProd = process.env.NODE_ENV === 'production';
 

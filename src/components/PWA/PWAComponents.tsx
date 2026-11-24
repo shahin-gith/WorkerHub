@@ -69,12 +69,12 @@ export const PWAInstallPrompt: React.FC = () => {
 
   if (isInstallable) {
     return (
-      <div className="bg-amber-500 text-slate-950 px-4 py-2 flex items-center justify-between text-xs font-bold shadow-md">
-        <div className="flex items-center gap-2">
-          <Download className="w-4 h-4" />
-          <span>Install WorkerHub on your phone for quick offline access!</span>
+      <div className="no-print bg-amber-500 text-slate-950 px-4 py-2 flex items-center justify-between text-xs font-bold shadow-md gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Download className="w-4 h-4 shrink-0" />
+          <span className="truncate">Install WorkerHub on your phone for quick offline access!</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={install}
             className="px-3 py-1 bg-slate-950 text-white rounded-lg hover:bg-slate-800 transition-colors"
@@ -95,18 +95,18 @@ export const PWAInstallPrompt: React.FC = () => {
   if (isIOS) {
     return (
       <>
-        <div className="bg-slate-900 text-white px-4 py-2 flex items-center justify-between text-xs">
-          <span>Install WorkerHub to your Home Screen</span>
+        <div className="no-print bg-slate-900 text-white px-4 py-2 flex items-center justify-between text-xs gap-2">
+          <span className="truncate">Install WorkerHub to your Home Screen</span>
           <button
             onClick={() => setShowIOSGuide(true)}
-            className="px-2.5 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs"
+            className="px-2.5 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs shrink-0"
           >
             How to Install
           </button>
         </div>
 
         {showIOSGuide && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="w-full max-w-sm rounded-3xl bg-white dark:bg-slate-900 p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white">
               <h3 className="text-base font-bold mb-2">Install on iPhone / iPad</h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed mb-4">
@@ -134,7 +134,7 @@ export const OfflineStatusBanner: React.FC<{ isOnline: boolean }> = ({ isOnline 
   if (isOnline) return null;
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-40 max-w-md mx-auto flex items-center gap-2 rounded-2xl bg-amber-600 px-3.5 py-2 text-xs font-bold text-white shadow-xl">
+    <div className="no-print fixed bottom-20 left-4 right-4 z-40 max-w-md mx-auto flex items-center gap-2 rounded-2xl bg-amber-600 px-3.5 py-2 text-xs font-bold text-white shadow-xl">
       <WifiOff className="w-4 h-4 shrink-0" />
       <span>Offline Mode active: All timecard records & salary calculations work 100% offline.</span>
     </div>

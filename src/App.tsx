@@ -3,12 +3,13 @@ import {
   storageService,
   DEFAULT_DASHBOARD_CONFIG,
   DEFAULT_SAVINGS_GOAL,
-  EMPTY_CV,
+  DEFAULT_MONEY_ACCOUNTS,
+  PREFILLED_CV,
 } from './services/storageService';
 import { DEFAULT_SALARY_SETTINGS } from './services/salaryEngine';
-import { apiClient, AccountDataBundle, AuthResponse } from './services/apiClient';
+import { apiClient, AccountDataBundle, DeviceAuthResponse } from './services/apiClient';
 import {
-  AuthUser,
+  DeviceUser,
   WorkShift,
   SalarySettings,
   DocumentItem,
@@ -16,8 +17,10 @@ import {
   SingaporeCV,
   CompanyReview,
   FinanceTransaction,
+  MoneyAccount,
   SavingsGoal,
   DashboardCardConfig,
+  HelpArticle,
   Language,
 } from './types';
 import { TopBar } from './components/Navigation/TopBar';
@@ -33,9 +36,9 @@ import { CompanyReviewsView } from './components/CompanyReviews/CompanyReviewsVi
 import { WorkerHelpView } from './components/WorkerHelp/WorkerHelpView';
 import { TranslatorView } from './components/Translator/TranslatorView';
 import { SettingsView } from './components/Settings/SettingsView';
-import { AccountModal } from './components/Auth/AccountModal';
+import { DeviceIdModal } from './components/Auth/DeviceIdModal';
 import { PWAInstallPrompt, OfflineStatusBanner } from './components/PWA/PWAComponents';
-import { AlertCircle, CloudUpload, X } from 'lucide-react';
+import { AlertCircle, X } from 'lucide-react';
 
 export default function App() {
   // App-level UI state
@@ -45,14 +48,11 @@ export default function App() {
   const [showMoreDrawer, setShowMoreDrawer] = useState(false);
   const [isLogShiftModalOpen, setIsLogShiftModalOpen] = useState(false);
 
-  // Authenticated user & session token (kept strictly in JS memory, never localStorage)
+  // Device User ID & in-memory session token (token is never saved in localStorage)
   const [authToken, setAuthToken] = useState<string | null>(null);
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'register' | 'login'>('register');
+  const [deviceUser, setDeviceUser] = useState<DeviceUser | null>(null);
+  const [isDeviceIdModalOpen, setIsDeviceIdModalOpen] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [showLocalImportPrompt, setShowLocalImportPrompt] = useState(false);
-  const [importingLocal, setImportingLocal] = useState(false);
 
   // Network online status
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -84,7 +84,7 @@ export default function App() {
     storageService.saveLanguage(lang);
   };
 
-  // Data collections state
+  // Data collections state (initialized from local cache for instant offline load)
   const [shifts, setShifts] = useState<WorkShift[]>(() => storageService.getShifts());
   const [salarySettings, setSalarySettings] = useState<SalarySettings>(() =>
     storageService.getSalarySettings()
@@ -95,44 +95,58 @@ export default function App() {
   );
   const [cv, setCv] = useState<SingaporeCV>(() => storageService.getCV());
   const [reviews, setReviews] = useState<CompanyReview[]>([]);
+  const [helpArticles, setHelpArticles] = useState<HelpArticle[]>([]);
   const [finance, setFinance] = useState<FinanceTransaction[]>(() => storageService.getFinance());
+  const [moneyAccounts, setMoneyAccounts] = useState<MoneyAccount[]>(() =>
+    storageService.getMoneyAccounts()
+  );
   const [savingsGoal, setSavingsGoal] = useState<SavingsGoal>(() => storageService.getSavings());
   const [dashboardConfig, setDashboardConfig] = useState<DashboardCardConfig>(() =>
     storageService.getDashboardConfig()
   );
 
-  // Apply server account data bundle into state
-  const applyAccountBundle = useCallback(
-    (bundle: AccountDataBundle, user: AuthUser) => {
-      setShifts(bundle.shifts || []);
-      setDocuments(bundle.documents || []);
-      setCompanyHistory(bundle.companyHistory || []);
-      setFinance(bundle.finance || []);
-      setSalarySettings(
-        bundle.salarySettings
-          ? { ...DEFAULT_SALARY_SETTINGS, ...bundle.salarySettings }
-          : { ...DEFAULT_SALARY_SETTINGS }
-      );
-      setCv(
-        bundle.cv
-          ? { ...EMPTY_CV, ...bundle.cv }
-          : { ...EMPTY_CV, fullName: user.fullName, email: user.email }
-      );
-      setSavingsGoal(
-        bundle.savingsGoal
-          ? { ...DEFAULT_SAVINGS_GOAL, ...bundle.savingsGoal }
-          : { ...DEFAULT_SAVINGS_GOAL }
-      );
-      setDashboardConfig(
-        bundle.dashboardConfig
-          ? { ...DEFAULT_DASHBOARD_CONFIG, ...bundle.dashboardConfig }
-          : { ...DEFAULT_DASHBOARD_CONFIG }
-      );
-    },
-    []
-  );
+  // Apply server account data bundle into state & local offline cache
+  const applyAccountBundle = useCallback((bundle: AccountDataBundle) => {
+    const nextShifts = bundle.shifts || [];
+    const nextDocs = bundle.documents || [];
+    const nextHistory = bundle.companyHistory || [];
+    const nextFinance = bundle.finance || [];
+    const nextSalary = bundle.salarySettings
+      ? { ...DEFAULT_SALARY_SETTINGS, ...bundle.salarySettings }
+      : { ...DEFAULT_SALARY_SETTINGS };
+    const nextCv = bundle.cv ? { ...PREFILLED_CV, ...bundle.cv } : { ...PREFILLED_CV };
+    const nextSavings = bundle.savingsGoal
+      ? { ...DEFAULT_SAVINGS_GOAL, ...bundle.savingsGoal }
+      : { ...DEFAULT_SAVINGS_GOAL };
+    const nextAccounts =
+      bundle.moneyAccounts && bundle.moneyAccounts.length > 0
+        ? bundle.moneyAccounts
+        : [...DEFAULT_MONEY_ACCOUNTS];
+    const nextDashCfg = bundle.dashboardConfig
+      ? { ...DEFAULT_DASHBOARD_CONFIG, ...bundle.dashboardConfig }
+      : { ...DEFAULT_DASHBOARD_CONFIG };
 
-  // Reload local browser state (when logged out or local data refreshed)
+    setShifts(nextShifts);
+    setDocuments(nextDocs);
+    setCompanyHistory(nextHistory);
+    setFinance(nextFinance);
+    setSalarySettings(nextSalary);
+    setCv(nextCv);
+    setSavingsGoal(nextSavings);
+    setMoneyAccounts(nextAccounts);
+    setDashboardConfig(nextDashCfg);
+
+    storageService.saveShifts(nextShifts);
+    storageService.saveDocuments(nextDocs);
+    storageService.saveCompanyHistory(nextHistory);
+    storageService.saveFinance(nextFinance);
+    storageService.saveSalarySettings(nextSalary);
+    storageService.saveCV(nextCv);
+    storageService.saveSavings(nextSavings);
+    storageService.saveMoneyAccounts(nextAccounts);
+    storageService.saveDashboardConfig(nextDashCfg);
+  }, []);
+
   const loadLocalState = useCallback(() => {
     setShifts(storageService.getShifts());
     setSalarySettings(storageService.getSalarySettings());
@@ -140,94 +154,121 @@ export default function App() {
     setCompanyHistory(storageService.getCompanyHistory());
     setCv(storageService.getCV());
     setFinance(storageService.getFinance());
+    setMoneyAccounts(storageService.getMoneyAccounts());
     setSavingsGoal(storageService.getSavings());
     setDashboardConfig(storageService.getDashboardConfig());
   }, []);
 
-  // Load community reviews from server
+  // Auto-bootstrap Device User ID on launch (no email/password required)
+  const ensureDeviceSession = useCallback(async (): Promise<{
+    token: string;
+    user: DeviceUser;
+  } | null> => {
+    try {
+      const savedId = storageService.getDeviceUserId();
+      const res: DeviceAuthResponse = savedId
+        ? await apiClient.connectDevice(savedId, true)
+        : await apiClient.initDevice('Worker');
+
+      storageService.saveDeviceUserId(res.user.id);
+      setAuthToken(res.token);
+      setDeviceUser(res.user);
+
+      // If this device already has offline records and the server record is blank, sync them up once
+      const serverIsEmpty =
+        res.data.shifts.length === 0 &&
+        res.data.documents.length === 0 &&
+        res.data.companyHistory.length === 0 &&
+        res.data.finance.length === 0;
+
+      if (!savedId && serverIsEmpty && storageService.hasLocalRecords()) {
+        const imported = await apiClient.importLocalData(res.token, {
+          shifts: storageService.getShifts(),
+          documents: storageService.getDocuments(),
+          companyHistory: storageService.getCompanyHistory(),
+          finance: storageService.getFinance(),
+          moneyAccounts: storageService.getMoneyAccounts(),
+          salarySettings: storageService.getSalarySettings(),
+          cv: storageService.getCV(),
+          savingsGoal: storageService.getSavings(),
+          dashboardConfig: storageService.getDashboardConfig(),
+        });
+        applyAccountBundle(imported.data);
+      } else {
+        applyAccountBundle(res.data);
+      }
+
+      setSyncError(null);
+      return { token: res.token, user: res.user };
+    } catch {
+      // Offline mode: continue seamlessly with local storage data
+      return null;
+    }
+  }, [applyAccountBundle]);
+
+  useEffect(() => {
+    ensureDeviceSession();
+  }, [ensureDeviceSession]);
+
+  // Re-sync automatically when coming back online without a token
+  useEffect(() => {
+    if (isOnline && !authToken) {
+      ensureDeviceSession();
+    }
+  }, [isOnline, authToken, ensureDeviceSession]);
+
+  // Load community reviews & help articles
   const fetchReviews = useCallback(async (token: string | null) => {
     try {
       const res = await apiClient.getReviews(token);
-      setReviews(res.reviews);
+      setReviews(res.reviews || []);
     } catch {
-      // Fall back to empty array if offline; reviews require server connection
+      // Reviews unavailable while offline
+    }
+  }, []);
+
+  const fetchHelpArticles = useCallback(async (token: string | null) => {
+    try {
+      const res = await apiClient.getHelpArticles(token);
+      setHelpArticles(res.articles || []);
+    } catch {
+      // Community articles unavailable while offline
     }
   }, []);
 
   useEffect(() => {
     fetchReviews(authToken);
-  }, [authToken, fetchReviews]);
+    fetchHelpArticles(authToken);
+  }, [authToken, fetchReviews, fetchHelpArticles]);
 
   const handleApiError = (err: unknown) => {
     const error = err as Error & { status?: number };
     if (error.status === 401) {
-      setAuthToken(null);
-      setAuthUser(null);
-      loadLocalState();
-      setSyncError('Your session expired. Please sign in again to sync with your account.');
-      setAuthModalMode('login');
-      setIsAccountModalOpen(true);
+      ensureDeviceSession();
     } else {
-      setSyncError(error.message || 'Failed to save changes to your account.');
+      setSyncError(error.message || 'Failed to sync changes to server.');
     }
   };
 
-  // Auth Handlers
-  const handleAuthSuccess = (res: AuthResponse) => {
-    setSyncError(null);
+  // Called when switching or generating a Device User ID inside DeviceIdModal
+  const handleDeviceConnected = (res: DeviceAuthResponse) => {
+    storageService.saveDeviceUserId(res.user.id);
     setAuthToken(res.token);
-    setAuthUser(res.user);
-    applyAccountBundle(res.data, res.user);
-    if (storageService.hasLocalRecords()) {
-      setShowLocalImportPrompt(true);
-    }
-  };
-
-  const handleImportLocalToAccount = async () => {
-    if (!authToken || !authUser) return;
-    setImportingLocal(true);
+    setDeviceUser(res.user);
     setSyncError(null);
-    try {
-      const res = await apiClient.importLocalData(authToken, {
-        shifts: storageService.getShifts(),
-        documents: storageService.getDocuments(),
-        companyHistory: storageService.getCompanyHistory(),
-        finance: storageService.getFinance(),
-        salarySettings: storageService.getSalarySettings(),
-        cv: storageService.getCV(),
-        savingsGoal: storageService.getSavings(),
-        dashboardConfig: storageService.getDashboardConfig(),
-      });
-      applyAccountBundle(res.data, authUser);
-      storageService.clearAllLocalRecords();
-      setShowLocalImportPrompt(false);
-    } catch (err) {
-      handleApiError(err);
-    } finally {
-      setImportingLocal(false);
-    }
+    applyAccountBundle(res.data);
   };
 
-  const handleLogout = async () => {
-    if (authToken) {
-      await apiClient.logout(authToken).catch(() => undefined);
-    }
-    setAuthToken(null);
-    setAuthUser(null);
-    setShowLocalImportPrompt(false);
-    setSyncError(null);
-    loadLocalState();
-  };
-
-  const handleDeleteAccount = async () => {
+  const handleDeleteDeviceData = async () => {
     if (!authToken) return;
     try {
-      await apiClient.deleteAccount(authToken);
+      await apiClient.deleteDeviceAccount(authToken);
+      storageService.clearAllLocalRecords();
+      storageService.clearDeviceUserId();
       setAuthToken(null);
-      setAuthUser(null);
-      setShowLocalImportPrompt(false);
-      setSyncError(null);
+      setDeviceUser(null);
       loadLocalState();
+      await ensureDeviceSession();
     } catch (err) {
       handleApiError(err);
     }
@@ -240,9 +281,10 @@ export default function App() {
     companyHistory?: CompanyHistoryItem[];
     cv?: SingaporeCV;
     finance?: FinanceTransaction[];
+    moneyAccounts?: MoneyAccount[];
     savings?: SavingsGoal;
   }) => {
-    if (!authToken || !authUser) return;
+    if (!authToken) return;
     const res = await apiClient.importLocalData(authToken, {
       shifts: Array.isArray(data.shifts) ? data.shifts : [],
       salarySettings: data.salarySettings || null,
@@ -250,17 +292,17 @@ export default function App() {
       companyHistory: Array.isArray(data.companyHistory) ? data.companyHistory : [],
       cv: data.cv || null,
       finance: Array.isArray(data.finance) ? data.finance : [],
+      moneyAccounts: Array.isArray(data.moneyAccounts) ? data.moneyAccounts : null,
       savingsGoal: data.savings || null,
     });
-    applyAccountBundle(res.data, authUser);
+    applyAccountBundle(res.data);
   };
 
-  // Refresh data handler (used in SettingsView local mode)
   const handleRefreshAllData = () => {
-    if (authToken && authUser) {
+    if (authToken) {
       apiClient
         .getAccountData(authToken)
-        .then((res) => applyAccountBundle(res.data, authUser))
+        .then((res) => applyAccountBundle(res.data))
         .catch(handleApiError);
     } else {
       loadLocalState();
@@ -271,30 +313,27 @@ export default function App() {
   const handleSaveShift = (shift: WorkShift) => {
     const updated = [shift, ...shifts.filter((s) => s.id !== shift.id)];
     setShifts(updated);
+    storageService.saveShifts(updated);
     if (authToken) {
       apiClient.saveShift(authToken, shift).catch(handleApiError);
-    } else {
-      storageService.saveShifts(updated);
     }
   };
 
   const handleDeleteShift = (id: string) => {
     const updated = shifts.filter((s) => s.id !== id);
     setShifts(updated);
+    storageService.saveShifts(updated);
     if (authToken) {
       apiClient.deleteShift(authToken, id).catch(handleApiError);
-    } else {
-      storageService.saveShifts(updated);
     }
   };
 
   // Salary Settings Handler
   const handleUpdateSalarySettings = (settings: SalarySettings) => {
     setSalarySettings(settings);
+    storageService.saveSalarySettings(settings);
     if (authToken) {
       apiClient.saveSalarySettings(authToken, settings).catch(handleApiError);
-    } else {
-      storageService.saveSalarySettings(settings);
     }
   };
 
@@ -302,20 +341,18 @@ export default function App() {
   const handleSaveDocument = (doc: DocumentItem) => {
     const updated = [doc, ...documents.filter((d) => d.id !== doc.id)];
     setDocuments(updated);
+    storageService.saveDocuments(updated);
     if (authToken) {
       apiClient.saveDocument(authToken, doc).catch(handleApiError);
-    } else {
-      storageService.saveDocuments(updated);
     }
   };
 
   const handleDeleteDocument = (id: string) => {
     const updated = documents.filter((d) => d.id !== id);
     setDocuments(updated);
+    storageService.saveDocuments(updated);
     if (authToken) {
       apiClient.deleteDocument(authToken, id).catch(handleApiError);
-    } else {
-      storageService.saveDocuments(updated);
     }
   };
 
@@ -323,117 +360,148 @@ export default function App() {
   const handleSaveHistoryItem = (item: CompanyHistoryItem) => {
     const updated = [item, ...companyHistory.filter((h) => h.id !== item.id)];
     setCompanyHistory(updated);
+    storageService.saveCompanyHistory(updated);
     if (authToken) {
       apiClient.saveHistoryItem(authToken, item).catch(handleApiError);
-    } else {
-      storageService.saveCompanyHistory(updated);
     }
   };
 
   const handleDeleteHistoryItem = (id: string) => {
     const updated = companyHistory.filter((h) => h.id !== id);
     setCompanyHistory(updated);
+    storageService.saveCompanyHistory(updated);
     if (authToken) {
       apiClient.deleteHistoryItem(authToken, id).catch(handleApiError);
-    } else {
-      storageService.saveCompanyHistory(updated);
     }
   };
 
   // CV Handler
   const handleUpdateCV = (updatedCv: SingaporeCV) => {
     setCv(updatedCv);
+    storageService.saveCV(updatedCv);
     if (authToken) {
       apiClient.saveCV(authToken, updatedCv).catch(handleApiError);
-    } else {
-      storageService.saveCV(updatedCv);
     }
   };
 
-  // Review Handlers (Server-moderated)
+  // Review Handlers (Direct post + Like button + Report + Delete)
+  const getActiveToken = async (): Promise<string> => {
+    if (authToken) return authToken;
+    const session = await ensureDeviceSession();
+    if (!session?.token) {
+      throw new Error('Internet connection is required for community reviews.');
+    }
+    return session.token;
+  };
+
   const handleSubmitReview = async (
-    review: Omit<CompanyReview, 'id' | 'status' | 'createdAt'>
+    review: Omit<CompanyReview, 'id' | 'status' | 'createdAt' | 'likesCount' | 'likedByMe' | 'userId'>
   ) => {
-    if (!authToken) {
-      setAuthModalMode('register');
-      setIsAccountModalOpen(true);
-      return;
-    }
-    await apiClient.submitReview(authToken, review);
-    await fetchReviews(authToken);
+    const token = await getActiveToken();
+    await apiClient.submitReview(token, review);
+    await fetchReviews(token);
   };
 
-  const handleModerateReview = async (id: string, status: 'approved' | 'flagged') => {
-    if (!authToken) return;
-    await apiClient.moderateReview(authToken, id, status);
-    await fetchReviews(authToken);
+  const handleLikeReview = async (id: string) => {
+    const token = await getActiveToken();
+    const res = await apiClient.likeReview(token, id);
+    setReviews((prev) =>
+      prev.map((r) =>
+        r.id === id ? { ...r, likedByMe: res.likedByMe, likesCount: res.likesCount } : r
+      )
+    );
   };
 
   const handleReportReview = async (id: string) => {
-    if (!authToken) {
-      setAuthModalMode('login');
-      setIsAccountModalOpen(true);
-      return;
-    }
-    await apiClient.reportReview(authToken, id);
-    await fetchReviews(authToken);
+    const token = await getActiveToken();
+    await apiClient.reportReview(token, id);
+    await fetchReviews(token);
   };
 
   const handleDeleteReview = async (id: string) => {
-    if (!authToken) return;
-    await apiClient.deleteReview(authToken, id);
-    await fetchReviews(authToken);
+    const token = await getActiveToken();
+    await apiClient.deleteReview(token, id);
+    await fetchReviews(token);
+  };
+
+  // Help Articles Handlers
+  const handlePostHelpArticle = async (article: {
+    title: string;
+    category: HelpArticle['category'];
+    summary: string;
+    content: string;
+    language: Language;
+    sourceUrl?: string;
+  }) => {
+    const token = await getActiveToken();
+    await apiClient.postHelpArticle(token, article);
+    await fetchHelpArticles(token);
+  };
+
+  const handleLikeHelpArticle = async (id: string) => {
+    const token = await getActiveToken();
+    const res = await apiClient.likeHelpArticle(token, id);
+    setHelpArticles((prev) =>
+      prev.map((a) =>
+        a.id === id ? { ...a, likedByMe: res.likedByMe, likesCount: res.likesCount } : a
+      )
+    );
+  };
+
+  const handleDeleteHelpArticle = async (id: string) => {
+    const token = await getActiveToken();
+    await apiClient.deleteHelpArticle(token, id);
+    await fetchHelpArticles(token);
   };
 
   // Finance Handlers
   const handleSaveTransaction = (tx: FinanceTransaction) => {
     const updated = [tx, ...finance.filter((f) => f.id !== tx.id)];
     setFinance(updated);
+    storageService.saveFinance(updated);
     if (authToken) {
       apiClient.saveFinance(authToken, tx).catch(handleApiError);
-    } else {
-      storageService.saveFinance(updated);
     }
   };
 
   const handleDeleteTransaction = (id: string) => {
     const updated = finance.filter((f) => f.id !== id);
     setFinance(updated);
+    storageService.saveFinance(updated);
     if (authToken) {
       apiClient.deleteFinance(authToken, id).catch(handleApiError);
-    } else {
-      storageService.saveFinance(updated);
+    }
+  };
+
+  const handleSaveMoneyAccounts = (accounts: MoneyAccount[]) => {
+    setMoneyAccounts(accounts);
+    storageService.saveMoneyAccounts(accounts);
+    if (authToken) {
+      apiClient.saveMoneyAccounts(authToken, accounts).catch(handleApiError);
     }
   };
 
   const handleUpdateSavingsGoal = (goal: SavingsGoal) => {
     setSavingsGoal(goal);
+    storageService.saveSavings(goal);
     if (authToken) {
       apiClient.saveSavingsGoal(authToken, goal).catch(handleApiError);
-    } else {
-      storageService.saveSavings(goal);
     }
   };
 
   // Dashboard Config Handler
   const handleUpdateDashboardConfig = (cfg: DashboardCardConfig) => {
     setDashboardConfig(cfg);
+    storageService.saveDashboardConfig(cfg);
     if (authToken) {
       apiClient.saveDashboardConfig(authToken, cfg).catch(handleApiError);
-    } else {
-      storageService.saveDashboardConfig(cfg);
     }
   };
 
-  const openAccountModal = (mode: 'register' | 'login' = 'register') => {
-    setAuthModalMode(mode);
-    setIsAccountModalOpen(true);
-  };
-
-  const resolvedWorkerName = cv.fullName || authUser?.fullName || 'Worker';
+  const resolvedWorkerName = cv.fullName || (deviceUser ? `Worker #${deviceUser.id}` : 'Worker');
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors overflow-x-hidden">
       {/* PWA Install Banner */}
       <PWAInstallPrompt />
 
@@ -444,9 +512,8 @@ export default function App() {
         theme={theme}
         onThemeToggle={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
         isOnline={isOnline}
-        authUser={authUser}
-        onOpenAccountModal={() => openAccountModal('register')}
-        onOpenSettings={() => setActiveTab('settings')}
+        deviceUser={deviceUser}
+        onOpenDeviceIdModal={() => setIsDeviceIdModalOpen(true)}
       />
 
       {/* Offline Status Floating Toast */}
@@ -454,7 +521,7 @@ export default function App() {
 
       {/* Sync Error Notice */}
       {syncError && (
-        <div className="max-w-5xl w-full mx-auto px-4 pt-3">
+        <div className="no-print max-w-5xl w-full mx-auto px-3 sm:px-4 pt-3">
           <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-900/60 text-xs text-red-800 dark:text-red-200 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -543,9 +610,11 @@ export default function App() {
           <FinanceView
             language={language}
             transactions={finance}
+            moneyAccounts={moneyAccounts}
             savingsGoal={savingsGoal}
             onSaveTransaction={handleSaveTransaction}
             onDeleteTransaction={handleDeleteTransaction}
+            onSaveMoneyAccounts={handleSaveMoneyAccounts}
             onUpdateSavingsGoal={handleUpdateSavingsGoal}
           />
         )}
@@ -554,30 +623,37 @@ export default function App() {
           <CompanyReviewsView
             language={language}
             reviews={reviews}
-            authUser={authUser}
-            onOpenAccountModal={() => openAccountModal('login')}
+            deviceUser={deviceUser}
             onSubmitReview={handleSubmitReview}
-            onModerateReview={handleModerateReview}
+            onLikeReview={handleLikeReview}
             onReportReview={handleReportReview}
             onDeleteReview={handleDeleteReview}
           />
         )}
 
-        {activeTab === 'help' && <WorkerHelpView language={language} />}
+        {activeTab === 'help' && (
+          <WorkerHelpView
+            language={language}
+            articles={helpArticles}
+            deviceUserId={deviceUser?.id}
+            onPostArticle={handlePostHelpArticle}
+            onLikeArticle={handleLikeHelpArticle}
+            onDeleteArticle={handleDeleteHelpArticle}
+          />
+        )}
 
         {activeTab === 'translator' && <TranslatorView language={language} />}
 
         {activeTab === 'settings' && (
           <SettingsView
             language={language}
-            authUser={authUser}
-            onOpenAccountModal={() => openAccountModal('register')}
-            onLogout={handleLogout}
-            onDeleteAccount={handleDeleteAccount}
+            deviceUser={deviceUser}
+            onOpenDeviceIdModal={() => setIsDeviceIdModalOpen(true)}
+            onDeleteDeviceData={handleDeleteDeviceData}
             onRefreshAllData={handleRefreshAllData}
             onImportBackupData={handleImportBackupData}
             currentAccountData={
-              authUser
+              deviceUser
                 ? {
                     shifts,
                     salarySettings,
@@ -585,6 +661,7 @@ export default function App() {
                     companyHistory,
                     cv,
                     finance,
+                    moneyAccounts,
                     savings: savingsGoal,
                   }
                 : undefined
@@ -602,56 +679,14 @@ export default function App() {
         setShowMoreDrawer={setShowMoreDrawer}
       />
 
-      {/* Open Account / Sign In / Email OTP Verification Modal */}
-      <AccountModal
-        isOpen={isAccountModalOpen}
-        onClose={() => setIsAccountModalOpen(false)}
+      {/* Device User ID & Cross-Device Sync Modal */}
+      <DeviceIdModal
+        isOpen={isDeviceIdModalOpen}
+        onClose={() => setIsDeviceIdModalOpen(false)}
         language={language}
-        initialMode={authModalMode}
-        onAuthSuccess={handleAuthSuccess}
+        deviceUser={deviceUser}
+        onConnected={handleDeviceConnected}
       />
-
-      {/* Explicit Local-to-Account Import Prompt Modal */}
-      {showLocalImportPrompt && authUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-xl bg-amber-100 dark:bg-amber-950 text-amber-600">
-                <CloudUpload className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Import Local Browser Records?
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Signed in as {authUser.email}
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              This device has saved shifts, documents, or profile records from local mode. Would you like to import and save them into your verified WorkerHub account?
-            </p>
-
-            <div className="flex flex-col sm:flex-row gap-2 pt-1">
-              <button
-                onClick={handleImportLocalToAccount}
-                disabled={importingLocal}
-                className="flex-1 py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 font-bold text-xs shadow-sm transition-colors"
-              >
-                {importingLocal ? 'Importing...' : 'Import & Save to Account'}
-              </button>
-              <button
-                onClick={() => setShowLocalImportPrompt(false)}
-                disabled={importingLocal}
-                className="flex-1 py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-              >
-                Use Account Data Only
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

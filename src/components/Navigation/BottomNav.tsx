@@ -126,7 +126,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       {/* Fixed Bottom Navigation Bar (Mobile) */}
       <nav 
         aria-label="Mobile Navigation"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg"
+        className="no-print md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg"
       >
         <div className="grid grid-cols-5 items-center h-16 max-w-md mx-auto px-1">
           {mainTabs.map((tab) => {
@@ -167,7 +167,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       </nav>
 
       {/* Desktop Top Sub-Nav Ribbon (visible on md: screens) */}
-      <div className="hidden md:block bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+      <div className="no-print hidden md:block bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
         <div className="max-w-6xl mx-auto px-4 flex items-center gap-1 overflow-x-auto py-2">
           {mainTabs.map((tab) => {
             const Icon = tab.icon;

@@ -6,6 +6,7 @@ import {
   SingaporeCV,
   CompanyReview,
   FinanceTransaction,
+  MoneyAccount,
   SavingsGoal,
   DashboardCardConfig,
   Language,
@@ -13,6 +14,7 @@ import {
 import { DEFAULT_SALARY_SETTINGS } from './salaryEngine';
 
 const STORAGE_KEYS = {
+  DEVICE_USER_ID: 'workerhub_device_uid_v1',
   SHIFTS: 'workerhub_shifts_v1',
   SALARY_SETTINGS: 'workerhub_salary_settings_v1',
   DOCUMENTS: 'workerhub_documents_v1',
@@ -20,6 +22,7 @@ const STORAGE_KEYS = {
   CV: 'workerhub_cv_v1',
   REVIEWS: 'workerhub_reviews_v1',
   FINANCE: 'workerhub_finance_v1',
+  MONEY_ACCOUNTS: 'workerhub_money_accounts_v1',
   SAVINGS: 'workerhub_savings_v1',
   DASHBOARD_CONFIG: 'workerhub_dash_config_v1',
   LANGUAGE: 'workerhub_lang_v1',
@@ -35,28 +38,82 @@ export const DEFAULT_DASHBOARD_CONFIG: DashboardCardConfig = {
   showEmergencyHelp: true,
 };
 
-export const EMPTY_CV: SingaporeCV = {
-  fullName: '',
-  contactNumber: '',
+export const PREFILLED_CV: SingaporeCV = {
+  fullName: 'MD. Karim Hossain',
+  contactNumber: '+65 8123 4567',
   email: '',
-  residentialArea: '',
+  residentialArea: 'Tuas South / Jurong West, Singapore',
   nationality: 'Bangladeshi',
   passType: 'Work Permit',
-  yearsInSingapore: 0,
-  professionalSummary: '',
-  workExperience: [],
-  skills: [],
-  education: [],
+  yearsInSingapore: 3,
+  professionalSummary:
+    'Dedicated and safety-focused Singapore Work Permit worker with 3+ years of site experience in construction and marine engineering projects. Certified in MOM/BCA safety protocols, reliable in overtime and night-shift teamwork, and experienced with tools, rigging, and structural installation.',
+  workExperience: [
+    {
+      id: 'we-starter-1',
+      company: 'Singapore Engineering & Builders Pte Ltd',
+      role: 'General Construction & Maintenance Worker',
+      duration: '2023 - Present',
+      responsibilities:
+        'Assisted site supervisors with rebar, formwork, material handling, housekeeping, and daily toolbox safety briefings in compliance with WSH standards.',
+    },
+  ],
+  skills: [
+    'Workplace Safety & Health (WSH)',
+    'Material Handling & Rigging',
+    'Power Tools & Grinding',
+    'Basic Structural & Civil Works',
+    'Teamwork & Site Coordination',
+  ],
+  education: [
+    {
+      id: 'edu-starter-1',
+      institution: 'Technical & Vocational Training Centre',
+      qualification: 'Secondary School Certificate (SSC) & Trade Certification',
+      year: '2020',
+    },
+  ],
   languages: [
     { id: 'la-1', name: 'Bengali', level: 'Native / Mother Tongue' },
-    { id: 'la-2', name: 'English', level: 'Conversational' },
+    { id: 'la-2', name: 'English', level: 'Conversational (Worksite)' },
   ],
   drivingLicence: {
     hasLicence: false,
     licenceClass: '',
   },
-  certificates: [],
+  certificates: [
+    {
+      id: 'cert-starter-1',
+      name: 'CSOC / Apply Workplace Safety & Health in Construction Sites (AWSHCS)',
+      issuer: 'MOM / SCAL Accredited Training Centre',
+      year: '2024',
+    },
+  ],
 };
+
+export const DEFAULT_MONEY_ACCOUNTS: MoneyAccount[] = [
+  {
+    id: 'acc-cash',
+    name: 'Cash Wallet',
+    type: 'cash',
+    initialBalance: 0,
+    createdAt: 1,
+  },
+  {
+    id: 'acc-bank',
+    name: 'Bank Account (POSB / DBS)',
+    type: 'bank',
+    initialBalance: 0,
+    createdAt: 2,
+  },
+  {
+    id: 'acc-savings',
+    name: 'Savings Reserve',
+    type: 'savings',
+    initialBalance: 0,
+    createdAt: 3,
+  },
+];
 
 export const DEFAULT_SAVINGS_GOAL: SavingsGoal = {
   id: 'sav-1',
@@ -67,6 +124,19 @@ export const DEFAULT_SAVINGS_GOAL: SavingsGoal = {
 };
 
 export const storageService = {
+  getDeviceUserId(): string | null {
+    const raw = localStorage.getItem(STORAGE_KEYS.DEVICE_USER_ID);
+    return raw && /^\d{6,12}$/.test(raw.trim()) ? raw.trim() : null;
+  },
+
+  saveDeviceUserId(userId: string): void {
+    localStorage.setItem(STORAGE_KEYS.DEVICE_USER_ID, userId.trim());
+  },
+
+  clearDeviceUserId(): void {
+    localStorage.removeItem(STORAGE_KEYS.DEVICE_USER_ID);
+  },
+
   getShifts(): WorkShift[] {
     const raw = localStorage.getItem(STORAGE_KEYS.SHIFTS);
     if (!raw) return [];
@@ -125,11 +195,11 @@ export const storageService = {
 
   getCV(): SingaporeCV {
     const raw = localStorage.getItem(STORAGE_KEYS.CV);
-    if (!raw) return { ...EMPTY_CV };
+    if (!raw) return { ...PREFILLED_CV };
     try {
-      return { ...EMPTY_CV, ...JSON.parse(raw) };
+      return { ...PREFILLED_CV, ...JSON.parse(raw) };
     } catch {
-      return { ...EMPTY_CV };
+      return { ...PREFILLED_CV };
     }
   },
 
@@ -163,6 +233,21 @@ export const storageService = {
 
   saveFinance(txs: FinanceTransaction[]): void {
     localStorage.setItem(STORAGE_KEYS.FINANCE, JSON.stringify(txs));
+  },
+
+  getMoneyAccounts(): MoneyAccount[] {
+    const raw = localStorage.getItem(STORAGE_KEYS.MONEY_ACCOUNTS);
+    if (!raw) return [...DEFAULT_MONEY_ACCOUNTS];
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) && parsed.length > 0 ? parsed : [...DEFAULT_MONEY_ACCOUNTS];
+    } catch {
+      return [...DEFAULT_MONEY_ACCOUNTS];
+    }
+  },
+
+  saveMoneyAccounts(accounts: MoneyAccount[]): void {
+    localStorage.setItem(STORAGE_KEYS.MONEY_ACCOUNTS, JSON.stringify(accounts));
   },
 
   getSavings(): SavingsGoal {
@@ -219,8 +304,7 @@ export const storageService = {
       this.getShifts().length > 0 ||
       this.getDocuments().length > 0 ||
       this.getCompanyHistory().length > 0 ||
-      this.getFinance().length > 0 ||
-      Boolean(this.getCV().fullName.trim())
+      this.getFinance().length > 0
     );
   },
 
@@ -231,10 +315,11 @@ export const storageService = {
     companyHistory: CompanyHistoryItem[];
     cv: SingaporeCV;
     finance: FinanceTransaction[];
+    moneyAccounts?: MoneyAccount[];
     savings: SavingsGoal;
   }): void {
     const backupData = {
-      version: '1.0',
+      version: '2.0',
       exportedAt: new Date().toISOString(),
       appName: 'WorkerHub Singapore',
       data: overrideData || {
@@ -244,6 +329,7 @@ export const storageService = {
         companyHistory: this.getCompanyHistory(),
         cv: this.getCV(),
         finance: this.getFinance(),
+        moneyAccounts: this.getMoneyAccounts(),
         savings: this.getSavings(),
       },
     };
@@ -271,6 +357,7 @@ export const storageService = {
       if (Array.isArray(parsed.data.companyHistory)) this.saveCompanyHistory(parsed.data.companyHistory);
       if (parsed.data.cv) this.saveCV(parsed.data.cv);
       if (Array.isArray(parsed.data.finance)) this.saveFinance(parsed.data.finance);
+      if (Array.isArray(parsed.data.moneyAccounts)) this.saveMoneyAccounts(parsed.data.moneyAccounts);
       if (parsed.data.savings) this.saveSavings(parsed.data.savings);
 
       return { success: true, message: 'Data restored successfully.', data: parsed.data };
@@ -287,6 +374,7 @@ export const storageService = {
       STORAGE_KEYS.HISTORY,
       STORAGE_KEYS.CV,
       STORAGE_KEYS.FINANCE,
+      STORAGE_KEYS.MONEY_ACCOUNTS,
       STORAGE_KEYS.SAVINGS,
       STORAGE_KEYS.DASHBOARD_CONFIG,
     ].forEach((k) => localStorage.removeItem(k));

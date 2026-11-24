@@ -1,11 +1,11 @@
 export type Language = 'en' | 'bn';
 
-export type WorkStatus = 
-  | 'normal' 
-  | 'rest_day' 
-  | 'public_holiday' 
-  | 'medical_leave' 
-  | 'paid_leave' 
+export type WorkStatus =
+  | 'normal'
+  | 'rest_day'
+  | 'public_holiday'
+  | 'medical_leave'
+  | 'paid_leave'
   | 'unpaid_leave';
 
 export interface WorkShift {
@@ -14,7 +14,7 @@ export interface WorkShift {
   companyName: string;
   worksiteName: string;
   startTime: string; // HH:mm
-  endTime: string;   // HH:mm
+  endTime: string; // HH:mm
   breakDurationMinutes: number;
   normalHours: number;
   otHours: number;
@@ -36,10 +36,10 @@ export interface AllowanceDeductionItem {
 export interface SalarySettings {
   calculationBasis: SalaryCalculationBasis;
   basicSalary: number; // monthly or daily or hourly based on calculationBasis
-  hourlyRateMode?: 'fixed' | 'mom_formula';
-  customHourlyBasicRate?: number; // defaults to 2.50
+  hourlyRateMode?: 'fixed';
+  customHourlyBasicRate?: number; // defaults to 2.50 across all 3 sections
   workingDaysPerWeek: number; // e.g., 6 or 5.5 or 5
-  normalHoursPerDay: number;  // e.g., 8 or 9
+  normalHoursPerDay: number; // e.g., 8 or 9
   otMultiplierNormal: number; // typically 1.5
   otMultiplierSundayRest: number; // typically 2.0
   otMultiplierPublicHoliday: number; // typically 2.0
@@ -52,12 +52,11 @@ export interface SalarySettings {
   defaultBreakMinutes: number;
 }
 
-export interface AuthUser {
-  id: string;
-  email: string;
-  fullName: string;
+export interface DeviceUser {
+  id: string; // 8-digit numeric User ID e.g. "48291037"
+  displayName: string;
   role: 'worker' | 'admin';
-  emailVerified: boolean;
+  createdAt: number;
 }
 
 export interface MonthlySummary {
@@ -108,13 +107,13 @@ export interface SalaryBreakdown {
   formulaSteps: FormulaStep[];
 }
 
-export type DocumentCategory = 
-  | 'work_permit' 
-  | 'passport' 
-  | 'employment_contract' 
-  | 'medical' 
-  | 'payslip' 
-  | 'certificate' 
+export type DocumentCategory =
+  | 'work_permit'
+  | 'passport'
+  | 'employment_contract'
+  | 'medical'
+  | 'payslip'
+  | 'certificate'
   | 'other';
 
 export interface DocumentItem {
@@ -125,7 +124,7 @@ export interface DocumentItem {
   expiryDate?: string; // YYYY-MM-DD
   notes?: string;
   fileName?: string;
-  fileDataUrl?: string; // stored locally in Base64 if attached
+  fileDataUrl?: string; // stored in Base64 if attached (up to 5MB)
   fileSizeKb?: number;
   createdAt: number;
 }
@@ -135,7 +134,7 @@ export interface CompanyHistoryItem {
   companyName: string;
   jobTitle: string;
   startDate: string; // YYYY-MM
-  endDate?: string;   // YYYY-MM or 'Present'
+  endDate?: string; // YYYY-MM or 'Present'
   isCurrent: boolean;
   basicSalary?: number;
   worksite?: string;
@@ -188,6 +187,7 @@ export interface SingaporeCV {
 
 export interface CompanyReview {
   id: string;
+  userId?: string;
   companyName: string;
   industry: 'Construction' | 'Marine Shipyard' | 'Manufacturing' | 'Process' | 'Services' | 'Other';
   ratingWorkEnv: number; // 1-5
@@ -198,15 +198,77 @@ export interface CompanyReview {
   comment: string;
   employmentStatus: 'Current Worker' | 'Former Worker';
   status: 'approved' | 'pending' | 'flagged';
+  likesCount: number;
+  likedByMe?: boolean;
+  googleSourceUrl?: string;
   createdAt: number;
 }
 
-export type FinanceCategory = 'salary' | 'overtime' | 'food' | 'remittance' | 'dormitory' | 'transport' | 'mobile_data' | 'medical' | 'entertainment' | 'other';
+export interface GoogleCompanyResult {
+  name: string;
+  industry: 'Construction' | 'Marine Shipyard' | 'Manufacturing' | 'Process' | 'Services' | 'Other';
+  address: string;
+  description: string;
+  sourceUrl?: string;
+  sourceTitle?: string;
+}
+
+export interface HelpArticle {
+  id: string;
+  userId?: string;
+  title: string;
+  category: 'salary' | 'safety' | 'medical' | 'housing' | 'remittance' | 'general';
+  summary: string;
+  content: string;
+  language: Language;
+  authorLabel: string;
+  sourceUrl?: string;
+  likesCount: number;
+  likedByMe?: boolean;
+  isOwner?: boolean;
+  createdAt: number;
+}
+
+export interface HelpSearchResult {
+  summaryText: string;
+  articles: Array<{
+    title: string;
+    summary: string;
+    category: HelpArticle['category'];
+    url: string;
+    sourceName: string;
+  }>;
+  groundingLinks: Array<{ title: string; uri: string }>;
+}
+
+export type MoneyAccountType = 'cash' | 'bank' | 'savings' | 'mobile_wallet';
+
+export interface MoneyAccount {
+  id: string;
+  name: string;
+  type: MoneyAccountType;
+  initialBalance: number;
+  createdAt: number;
+}
+
+export type FinanceCategory =
+  | 'salary'
+  | 'overtime'
+  | 'food'
+  | 'remittance'
+  | 'dormitory'
+  | 'transport'
+  | 'mobile_data'
+  | 'medical'
+  | 'entertainment'
+  | 'other';
 
 export interface FinanceTransaction {
   id: string;
   type: 'income' | 'expense' | 'remittance';
   category: FinanceCategory;
+  accountId?: string;
+  accountName?: string;
   amountSgd: number;
   amountForeign?: number;
   foreignCurrency?: string; // e.g. 'BDT'

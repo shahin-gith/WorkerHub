@@ -148,7 +148,8 @@ export function exportCvPDF(cv: SingaporeCV) {
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
   doc.setFont('helvetica', 'bold');
-  doc.text(cv.fullName.toUpperCase(), 14, 14);
+  const safeName = (cv.fullName || 'Worker').trim();
+  doc.text(safeName.toUpperCase(), 14, 14);
 
   doc.setFontSize(9);
   doc.setFont('helvetica', 'normal');
@@ -264,7 +265,7 @@ export function exportCvPDF(cv: SingaporeCV) {
     doc.text(eduLines, 14, y);
   }
 
-  doc.save(`Singapore_CV_${cv.fullName.replace(/\s+/g, '_')}.pdf`);
+  doc.save(`Singapore_CV_${(cv.fullName || 'Worker').trim().replace(/\s+/g, '_')}.pdf`);
 }
 
 /**

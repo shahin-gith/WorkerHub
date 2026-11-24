@@ -1,23 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Star,
   Plus,
   ShieldCheck,
-  CheckCircle2,
   Flag,
   X,
-  Lock,
+  Search,
+  ThumbsUp,
+  ExternalLink,
+  Building2,
+  MapPin,
+  Trash2,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
-import { AuthUser, CompanyReview, Language } from '../../types';
+import {
+  CompanyReview,
+  DeviceUser,
+  GoogleCompanyResult,
+  Language,
+} from '../../types';
 import { getTranslation } from '../../services/i18n';
+import { apiClient } from '../../services/apiClient';
 
 interface CompanyReviewsViewProps {
   language: Language;
   reviews: CompanyReview[];
-  authUser: AuthUser | null;
-  onOpenAccountModal: () => void;
-  onSubmitReview: (review: Omit<CompanyReview, 'id' | 'status' | 'createdAt'>) => Promise<void>;
-  onModerateReview: (id: string, status: 'approved' | 'flagged') => Promise<void>;
+  deviceUser: DeviceUser | null;
+  onSubmitReview: (
+    review: Omit<CompanyReview, 'id' | 'status' | 'createdAt' | 'likesCount' | 'likedByMe' | 'userId'>
+  ) => Promise<void>;
+  onLikeReview: (id: string) => Promise<void>;
   onReportReview: (id: string) => Promise<void>;
   onDeleteReview: (id: string) => Promise<void>;
 }
@@ -25,19 +38,25 @@ interface CompanyReviewsViewProps {
 export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
   language,
   reviews,
-  authUser,
-  onOpenAccountModal,
+  deviceUser,
   onSubmitReview,
-  onModerateReview,
+  onLikeReview,
   onReportReview,
   onDeleteReview,
 }) => {
   const t = getTranslation(language);
 
-  const [activeTab, setActiveTab] = useState<'approved' | 'moderation'>('approved');
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
+  const [reviewFilterQuery, setReviewFilterQuery] = useState('');
+
+  // Live Google Company Search state
+  const [googleQuery, setGoogleQuery] = useState('');
+  const [searchingGoogle, setSearchingGoogle] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [googleCompanies, setGoogleCompanies] = useState<GoogleCompanyResult[]>([]);
+  const [groundingLinks, setGroundingLinks] = useState<Array<{ title: string; uri: string }>>([]);
 
   const [formData, setFormData] = useState<{
     companyName: string;
@@ -49,6 +68,7 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
     title: string;
     comment: string;
     employmentStatus: CompanyReview['employmentStatus'];
+    googleSourceUrl?: string;
   }>({
     companyName: '',
     industry: 'Construction',
@@ -59,17 +79,54 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
     title: '',
     comment: '',
     employmentStatus: 'Current Worker',
+    googleSourceUrl: undefined,
   });
 
-  const isAdmin = authUser?.role === 'admin';
-  const approvedReviews = reviews.filter((r) => r.status === 'approved');
-  const pendingReviews = reviews.filter((r) => r.status === 'pending');
+  const visibleReviews = useMemo(() => {
+    const q = reviewFilterQuery.trim().toLowerCase();
+    return reviews.filter((r) => {
+      if (r.status === 'flagged') return false;
+      if (!q) return true;
+      return (
+        r.companyName.toLowerCase().includes(q) ||
+        r.industry.toLowerCase().includes(q) ||
+        r.comment.toLowerCase().includes(q) ||
+        r.title.toLowerCase().includes(q)
+      );
+    });
+  }, [reviews, reviewFilterQuery]);
 
-  const handleOpenSubmit = () => {
-    if (!authUser) {
-      onOpenAccountModal();
+  const handleGoogleSearch = async (queryOverride?: string) => {
+    const q = (queryOverride ?? googleQuery).trim();
+    if (q.length < 2) {
+      setGoogleError('Enter at least 2 characters to search Singapore companies on Google.');
       return;
     }
+    setSearchingGoogle(true);
+    setGoogleError(null);
+    try {
+      const res = await apiClient.searchGoogleCompanies(q);
+      setGoogleCompanies(res.companies || []);
+      setGroundingLinks(res.groundingLinks || []);
+      if ((!res.companies || res.companies.length === 0) && (!res.groundingLinks || res.groundingLinks.length === 0)) {
+        setGoogleError(`No Singapore companies matched "${q}". You can still enter the company name manually below.`);
+      }
+    } catch (err: unknown) {
+      setGoogleError((err as Error).message || 'Live Google company search failed.');
+      setGoogleCompanies([]);
+      setGroundingLinks([]);
+    } finally {
+      setSearchingGoogle(false);
+    }
+  };
+
+  const handleSelectGoogleCompany = (company: GoogleCompanyResult) => {
+    setFormData((prev) => ({
+      ...prev,
+      companyName: company.name,
+      industry: company.industry || 'Construction',
+      googleSourceUrl: company.sourceUrl,
+    }));
     setIsSubmitModalOpen(true);
   };
 
@@ -89,6 +146,7 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         title: formData.title.trim() || `${formData.industry} Experience`,
         comment: formData.comment.trim(),
         employmentStatus: formData.employmentStatus,
+        googleSourceUrl: formData.googleSourceUrl,
       });
       setIsSubmitModalOpen(false);
       setFormData({
@@ -101,8 +159,9 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         title: '',
         comment: '',
         employmentStatus: 'Current Worker',
+        googleSourceUrl: undefined,
       });
-      setStatusNotice('Your review was submitted to the moderation queue and will be published after verification.');
+      setStatusNotice('Your company review is now published live.');
     } catch (err: unknown) {
       setStatusNotice((err as Error).message);
     } finally {
@@ -115,19 +174,21 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
       {[1, 2, 3, 4, 5].map((s) => (
         <Star
           key={s}
-          className={`w-3.5 h-3.5 ${s <= rating ? 'text-amber-500 fill-amber-500' : 'text-slate-300 dark:text-slate-700'}`}
+          className={`w-3.5 h-3.5 ${
+            s <= rating ? 'text-amber-500 fill-amber-500' : 'text-slate-300 dark:text-slate-700'
+          }`}
         />
       ))}
     </div>
   );
 
   return (
-    <div className="space-y-4 pb-20 max-w-5xl mx-auto px-4 pt-4">
+    <div className="space-y-4 pb-24 max-w-5xl mx-auto px-3 sm:px-4 pt-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Star className="w-6 h-6 text-amber-500 fill-amber-500" />
+            <Star className="w-6 h-6 text-amber-500 fill-amber-500 shrink-0" />
             {t.reviewsTitle}
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -136,12 +197,146 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         </div>
 
         <button
-          onClick={handleOpenSubmit}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors shadow-sm self-start sm:self-auto"
+          onClick={() => setIsSubmitModalOpen(true)}
+          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors shadow-sm self-start sm:self-auto"
         >
-          {authUser ? <Plus className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
-          <span>{authUser ? t.submitReviewBtn : 'Sign In to Write Review'}</span>
+          <Plus className="w-4 h-4" />
+          <span>{t.submitReviewBtn}</span>
         </button>
+      </div>
+
+      {/* Live Google Singapore Company Search Card */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-amber-500 shrink-0" />
+            <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+              Live Google Search — Find Singapore Company to Review
+            </h2>
+          </div>
+          <span className="text-[11px] text-slate-500">
+            Powered by Google Search
+          </span>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Search Singapore company name (e.g. Seatrium, Woh Hup, Kimly Construction)..."
+              value={googleQuery}
+              onChange={(e) => setGoogleQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleGoogleSearch()}
+              className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => handleGoogleSearch()}
+            disabled={searchingGoogle}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs shrink-0 disabled:opacity-50"
+          >
+            {searchingGoogle ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Searching...</span>
+              </>
+            ) : (
+              <>
+                <Search className="w-3.5 h-3.5" />
+                <span>Search Google</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {googleError && (
+          <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{googleError}</span>
+          </div>
+        )}
+
+        {googleCompanies.length > 0 && (
+          <div className="space-y-2 pt-1">
+            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              Matching Singapore Companies
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+              {googleCompanies.map((company, idx) => (
+                <div
+                  key={`${company.name}-${idx}`}
+                  className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex flex-col justify-between gap-2.5"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                        {company.name}
+                      </h3>
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 shrink-0">
+                        {company.industry}
+                      </span>
+                    </div>
+                    {company.address && (
+                      <div className="text-[11px] text-slate-500 flex items-start gap-1">
+                        <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                        <span>{company.address}</span>
+                      </div>
+                    )}
+                    {company.description && (
+                      <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                        {company.description}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70 dark:border-slate-700">
+                    {company.sourceUrl ? (
+                      <a
+                        href={company.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline truncate"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{company.sourceTitle || 'Verify on Google'}</span>
+                      </a>
+                    ) : (
+                      <span className="text-[11px] text-slate-400">Singapore Business</span>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => handleSelectGoogleCompany(company)}
+                      className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shrink-0"
+                    >
+                      Write Review
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {groundingLinks.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-500">
+                <span className="font-semibold">Google Sources:</span>
+                {groundingLinks.slice(0, 4).map((lnk, i) => (
+                  <a
+                    key={i}
+                    href={lnk.uri}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    <span>{lnk.title}</span>
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Community Guidelines Policy Notice */}
@@ -149,7 +344,7 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
         <div>
           <span className="font-bold text-slate-800 dark:text-slate-200 block mb-0.5">
-            Fair & Moderated Community Guidelines:
+            Fair Community Reviews (User ID: {deviceUser?.id || 'Device Mode'}):
           </span>
           {t.reviewDisclaimer}
         </div>
@@ -164,67 +359,67 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         </div>
       )}
 
-      {/* Tabs: Approved vs Admin-Only Moderation Queue */}
-      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
-        <button
-          onClick={() => setActiveTab('approved')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-            activeTab === 'approved'
-              ? 'bg-amber-500 text-slate-950 shadow-sm'
-              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-          }`}
-        >
-          {t.tabCommunityReviews} ({approvedReviews.length})
-        </button>
+      {/* Filter Published Reviews */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <h2 className="text-sm font-bold text-slate-900 dark:text-white px-1">
+          {t.tabCommunityReviews} ({visibleReviews.length})
+        </h2>
 
-        {isAdmin && (
-          <button
-            onClick={() => setActiveTab('moderation')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-              activeTab === 'moderation'
-                ? 'bg-amber-500 text-slate-950 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-            }`}
-          >
-            <span>{t.tabModerationQueue}</span>
-            {pendingReviews.length > 0 && (
-              <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center font-bold">
-                {pendingReviews.length}
-              </span>
-            )}
-          </button>
-        )}
+        <div className="relative w-full sm:w-72">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            placeholder="Filter reviews by company or keyword..."
+            value={reviewFilterQuery}
+            onChange={(e) => setReviewFilterQuery(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white"
+          />
+        </div>
       </div>
 
-      {/* Content Feed */}
+      {/* Reviews Feed */}
       <div className="space-y-3">
-        {activeTab === 'approved' || !isAdmin ? (
-          approvedReviews.length === 0 ? (
-            <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
-              <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-                No published reviews yet. Be the first verified worker to share your experience.
-              </p>
-            </div>
-          ) : (
-            approvedReviews.map((rev) => (
+        {visibleReviews.length === 0 ? (
+          <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
+            <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
+              No reviews match yet. Search a Singapore company above and share your honest experience!
+            </p>
+          </div>
+        ) : (
+          visibleReviews.map((rev) => {
+            const isOwnReview = Boolean(deviceUser?.id && rev.userId === deviceUser.id);
+
+            return (
               <div
                 key={rev.id}
-                className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 hover:border-amber-400 dark:hover:border-amber-600/50 transition-colors"
+                className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3 hover:border-amber-400 dark:hover:border-amber-600/50 transition-colors"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-base font-bold text-slate-900 dark:text-white break-words">
                         {rev.companyName}
                       </h3>
                       <span className="text-[11px] text-slate-500">· {rev.industry}</span>
+                      {rev.googleSourceUrl && (
+                        <a
+                          href={rev.googleSourceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-0.5 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          <span>Google</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
                     </div>
                     <div className="text-xs text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
                       {rev.employmentStatus}
+                      {rev.userId ? ` · Worker #${rev.userId.slice(-4)}` : ''}
                     </div>
                   </div>
 
-                  <span className="text-[11px] text-slate-400">
+                  <span className="text-[11px] text-slate-400 shrink-0">
                     {new Date(rev.createdAt).toLocaleDateString()}
                   </span>
                 </div>
@@ -236,15 +431,21 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                     {renderStars(rev.ratingWorkEnv)}
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block mb-0.5">{t.reviewSalaryPayment}</span>
+                    <span className="text-[10px] text-slate-500 block mb-0.5">
+                      {t.reviewSalaryPayment}
+                    </span>
                     {renderStars(rev.ratingSalaryPayment)}
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block mb-0.5">{t.reviewAccommodation}</span>
+                    <span className="text-[10px] text-slate-500 block mb-0.5">
+                      {t.reviewAccommodation}
+                    </span>
                     {renderStars(rev.ratingAccommodation)}
                   </div>
                   <div>
-                    <span className="text-[10px] text-slate-500 block mb-0.5">{t.reviewManagement}</span>
+                    <span className="text-[10px] text-slate-500 block mb-0.5">
+                      {t.reviewManagement}
+                    </span>
                     {renderStars(rev.ratingManagement)}
                   </div>
                 </div>
@@ -255,83 +456,58 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                   </h4>
                 )}
 
-                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed break-words">
                   {rev.comment}
                 </p>
 
-                <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] text-slate-400">
-                  <span>Worker opinion / personal experience</span>
-                  {authUser && (
+                {/* Interactive Footer: Like Button + Report / Delete */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px]">
+                  <div className="flex items-center gap-2">
                     <button
+                      type="button"
+                      onClick={() => onLikeReview(rev.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-colors ${
+                        rev.likedByMe
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                      }`}
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                      <span>Helpful ({rev.likesCount || 0})</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-slate-400">
+                    {isOwnReview && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteReview(rev.id)}
+                        className="flex items-center gap-1 text-red-500 hover:text-red-600 font-semibold"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Delete</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
                       onClick={() => onReportReview(rev.id)}
                       className="flex items-center gap-1 hover:text-red-500 transition-colors"
                     >
                       <Flag className="w-3 h-3" />
                       <span>Report</span>
                     </button>
-                  )}
-                </div>
-              </div>
-            ))
-          )
-        ) : (
-          <div className="space-y-3">
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/40 rounded-2xl border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-200">
-              Admin Moderation Queue: Verify that submissions contain no personal contact phone numbers or abusive claims before approving.
-            </div>
-
-            {pendingReviews.length === 0 ? (
-              <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
-                <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-                <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-                  Moderation queue is clean. No pending reviews.
-                </p>
-              </div>
-            ) : (
-              pendingReviews.map((rev) => (
-                <div
-                  key={rev.id}
-                  className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-amber-200 dark:border-amber-900/60 shadow-sm space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-sm font-bold text-slate-900 dark:text-white">{rev.companyName}</span>
-                      <span className="text-xs text-slate-500 ml-2">({rev.industry})</span>
-                    </div>
-                    <span className="text-xs px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 font-bold">
-                      Pending Review
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 p-3 rounded-xl">
-                    "{rev.comment}"
-                  </p>
-
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <button
-                      onClick={() => onDeleteReview(rev.id)}
-                      className="px-3 py-1.5 rounded-xl border border-red-200 text-red-600 text-xs font-semibold hover:bg-red-50"
-                    >
-                      {t.moderateReject}
-                    </button>
-                    <button
-                      onClick={() => onModerateReview(rev.id, 'approved')}
-                      className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm"
-                    >
-                      {t.moderateApprove}
-                    </button>
                   </div>
                 </div>
-              ))
-            )}
-          </div>
+              </div>
+            );
+          })
         )}
       </div>
 
       {/* Submit Review Modal */}
       {isSubmitModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4 overflow-y-auto">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 my-6">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Star className="w-4 h-4 text-amber-500" />
@@ -351,14 +527,27 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     {t.company} *
                   </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Enter company name"
-                    value={formData.companyName}
-                    onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      required
+                      placeholder="Enter company name"
+                      value={formData.companyName}
+                      onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGoogleQuery(formData.companyName);
+                        handleGoogleSearch(formData.companyName);
+                      }}
+                      className="px-2.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold shrink-0"
+                      title="Lookup on Google"
+                    >
+                      <Search className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 <div>
@@ -367,7 +556,12 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                   </label>
                   <select
                     value={formData.industry}
-                    onChange={(e) => setFormData({ ...formData, industry: e.target.value as CompanyReview['industry'] })}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        industry: e.target.value as CompanyReview['industry'],
+                      })
+                    }
                     className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                   >
                     <option value="Construction">Construction</option>
@@ -377,6 +571,28 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                     <option value="Services">Services</option>
                     <option value="Other">Other</option>
                   </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Employment Status
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['Current Worker', 'Former Worker'] as const).map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, employmentStatus: status })}
+                      className={`py-1.5 text-xs font-semibold rounded-xl border ${
+                        formData.employmentStatus === status
+                          ? 'bg-amber-500/15 border-amber-500 text-amber-700 dark:text-amber-300'
+                          : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      {status}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -391,7 +607,9 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                     min="1"
                     max="5"
                     value={formData.ratingWorkEnv}
-                    onChange={(e) => setFormData({ ...formData, ratingWorkEnv: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, ratingWorkEnv: Number(e.target.value) })
+                    }
                     className="w-full accent-amber-500"
                   />
                 </div>
@@ -405,7 +623,9 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                     min="1"
                     max="5"
                     value={formData.ratingSalaryPayment}
-                    onChange={(e) => setFormData({ ...formData, ratingSalaryPayment: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, ratingSalaryPayment: Number(e.target.value) })
+                    }
                     className="w-full accent-amber-500"
                   />
                 </div>
@@ -419,7 +639,9 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                     min="1"
                     max="5"
                     value={formData.ratingAccommodation}
-                    onChange={(e) => setFormData({ ...formData, ratingAccommodation: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, ratingAccommodation: Number(e.target.value) })
+                    }
                     className="w-full accent-amber-500"
                   />
                 </div>
@@ -433,7 +655,9 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                     min="1"
                     max="5"
                     value={formData.ratingManagement}
-                    onChange={(e) => setFormData({ ...formData, ratingManagement: Number(e.target.value) })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, ratingManagement: Number(e.target.value) })
+                    }
                     className="w-full accent-amber-500"
                   />
                 </div>
@@ -459,7 +683,7 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                 <textarea
                   rows={3}
                   required
-                  placeholder="Share constructive feedback on workplace conditions, safety gears, food/living arrangements... (Do NOT post phone numbers)"
+                  placeholder="Share constructive feedback on workplace conditions, safety gears, food/living arrangements..."
                   value={formData.comment}
                   onChange={(e) => setFormData({ ...formData, comment: e.target.value })}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
@@ -479,7 +703,7 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                   disabled={submitting}
                   className="px-5 py-2 text-xs font-bold rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 transition-all shadow-sm"
                 >
-                  {submitting ? 'Submitting...' : 'Submit for Moderation'}
+                  {submitting ? 'Posting...' : 'Post Review'}
                 </button>
               </div>
             </form>

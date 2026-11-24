@@ -106,59 +106,51 @@ export function runAllEngineTests(): {
     );
   }
 
-  // Test 8: Hourly rate calculation under MOM formula (12 * monthly) / (52 * 44)
-  // Basic $1000 -> (12 * 1000) / (52 * 44) = 12000 / 2288 = $5.2447 -> $5.24/hr
+  // Test 8: Default Hourly Basic Rate of Pay = $2.50 / hr across all 3 sections (Monthly, Daily, Hourly)
   {
-    const testSettings: SalarySettings = {
-      ...DEFAULT_SALARY_SETTINGS,
-      basicSalary: 1000,
-      hourlyRateMode: 'mom_formula',
-      workingDaysPerWeek: 6,
-      normalHoursPerDay: 8,
-      calculationBasis: 'monthly',
-    };
-    const rateInfo = calculateHourlyRate(testSettings);
-    const expectedRate = 5.24;
-    assert(
-      'MOM monthly basic hourly rate formula ((12 × $1000) / (52 × 44))',
-      Math.abs(rateInfo.hourlyRate - expectedRate) <= 0.01,
-      `$${expectedRate}/hr`,
-      `$${rateInfo.hourlyRate}/hr`
-    );
-  }
-
-  // Test 8b: Default Hourly Basic Rate of Pay = $2.50 / hr
-  {
-    const fixedSettings: SalarySettings = {
+    const monthlySettings: SalarySettings = {
       ...DEFAULT_SALARY_SETTINGS,
       basicSalary: 600,
-      hourlyRateMode: 'fixed',
-      customHourlyBasicRate: 2.5,
       calculationBasis: 'monthly',
     };
-    const rateInfo = calculateHourlyRate(fixedSettings);
-    assert(
-      'Default Hourly Basic Rate of Pay ($2.50 / hr)',
-      rateInfo.hourlyRate === 2.5,
-      '$2.50/hr',
-      `$${rateInfo.hourlyRate.toFixed(2)}/hr`
-    );
-  }
-
-  // Test 9: Daily salary calculation basis
-  {
     const dailySettings: SalarySettings = {
       ...DEFAULT_SALARY_SETTINGS,
-      basicSalary: 45, // $45/day
+      basicSalary: 45,
       normalHoursPerDay: 9,
       calculationBasis: 'daily',
     };
-    const rateInfo = calculateHourlyRate(dailySettings);
+    const hourlySettings: SalarySettings = {
+      ...DEFAULT_SALARY_SETTINGS,
+      calculationBasis: 'hourly',
+    };
+    const rMonth = calculateHourlyRate(monthlySettings);
+    const rDaily = calculateHourlyRate(dailySettings);
+    const rHourly = calculateHourlyRate(hourlySettings);
     assert(
-      'Daily wage to hourly rate conversion ($45/day / 9h)',
-      rateInfo.hourlyRate === 5.0 && rateInfo.dailyRate === 45,
-      'hourly: $5.00, daily: $45.00',
-      `hourly: $${rateInfo.hourlyRate}, daily: $${rateInfo.dailyRate}`
+      'Hourly Basic Rate of Pay ($2.50 / hr) across all 3 sections (Monthly, Daily, Hourly)',
+      rMonth.hourlyRate === 2.5 &&
+        rDaily.hourlyRate === 2.5 &&
+        rDaily.dailyRate === 45 &&
+        rHourly.hourlyRate === 2.5,
+      'monthly: $2.50/hr, daily: $2.50/hr ($45/day), hourly: $2.50/hr',
+      `monthly: $${rMonth.hourlyRate.toFixed(2)}, daily: $${rDaily.hourlyRate.toFixed(2)} ($${rDaily.dailyRate}), hourly: $${rHourly.hourlyRate.toFixed(2)}`
+    );
+  }
+
+  // Test 9: Custom Hourly Basic Rate of Pay override ($3.00 / hr)
+  {
+    const customSettings: SalarySettings = {
+      ...DEFAULT_SALARY_SETTINGS,
+      customHourlyBasicRate: 3.0,
+      calculationBasis: 'daily',
+      basicSalary: 30,
+    };
+    const rateInfo = calculateHourlyRate(customSettings);
+    assert(
+      'Custom Hourly Basic Rate override ($3.00 / hr)',
+      rateInfo.hourlyRate === 3.0 && rateInfo.dailyRate === 30,
+      'hourly: $3.00, daily: $30.00',
+      `hourly: $${rateInfo.hourlyRate.toFixed(2)}, daily: $${rateInfo.dailyRate.toFixed(2)}`
     );
   }
 

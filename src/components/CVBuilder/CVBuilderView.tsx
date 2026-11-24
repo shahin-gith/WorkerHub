@@ -1,24 +1,20 @@
 import React, { useState } from 'react';
-import { 
-  FileCheck, 
-  Printer, 
-  Download, 
-  Plus, 
-  Trash2, 
-  Sparkles, 
-  Building2, 
-  Award, 
-  GraduationCap, 
-  Globe, 
-  Car,
+import {
+  FileCheck,
+  Printer,
+  Download,
+  Trash2,
   Lightbulb,
   Import,
   Eye,
-  Edit2
+  Edit2,
+  RotateCcw,
+  X,
 } from 'lucide-react';
 import { SingaporeCV, CompanyHistoryItem, Language } from '../../types';
 import { getTranslation } from '../../services/i18n';
 import { exportCvPDF } from '../../services/pdfExportService';
+import { PREFILLED_CV } from '../../services/storageService';
 
 interface CVBuilderViewProps {
   language: Language;
@@ -36,7 +32,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
   const t = getTranslation(language);
 
   const [activeTab, setActiveTab] = useState<'editor' | 'preview'>('editor');
-  const [template, setTemplate] = useState<'modern' | 'compact'>('modern');
+  const [cvNotice, setCvNotice] = useState<string | null>(null);
 
   // New item states
   const [newSkill, setNewSkill] = useState('');
@@ -47,7 +43,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
   // Import from Work History
   const handleImportHistory = () => {
     if (!companyHistory || companyHistory.length === 0) {
-      alert('No employment records found in Work History. Add records there first.');
+      setCvNotice('No employment records found in Work History yet. Add records there or edit jobs below.');
       return;
     }
 
@@ -63,6 +59,12 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
       ...cv,
       workExperience: imported,
     });
+    setCvNotice(`Imported ${imported.length} employment record(s) from Work History.`);
+  };
+
+  const handlePrefillTemplate = () => {
+    onUpdateCV({ ...PREFILLED_CV });
+    setCvNotice('Starter Singapore worker CV template loaded. Edit any details to match your profile.');
   };
 
   const handleAddSkill = () => {
@@ -107,13 +109,18 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
     });
   };
 
+  const handlePrintCV = () => {
+    setActiveTab('preview');
+    setTimeout(() => window.print(), 100);
+  };
+
   return (
-    <div className="space-y-4 pb-20 max-w-5xl mx-auto px-4 pt-4">
+    <div className="space-y-4 pb-24 max-w-5xl mx-auto px-3 sm:px-4 pt-4">
       {/* Header & Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="no-print flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <FileCheck className="w-6 h-6 text-amber-500" />
+            <FileCheck className="w-6 h-6 text-amber-500 shrink-0" />
             {t.cvTitle}
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -122,7 +129,6 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Segmented Editor vs Preview */}
           <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800 rounded-xl">
             <button
               onClick={() => setActiveTab('editor')}
@@ -157,8 +163,8 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
           </button>
 
           <button
-            onClick={() => window.print()}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            onClick={handlePrintCV}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             <Printer className="w-3.5 h-3.5" />
             <span>{t.printCV}</span>
@@ -166,20 +172,44 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
         </div>
       </div>
 
-      {/* Bengali Guidance Card */}
-      <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-        <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-        <div>
-          <span className="font-bold block mb-0.5">{t.bengaliGuidanceTitle}:</span>
-          {t.bengaliGuidanceBody}
+      {/* Inline Feedback Banner */}
+      {cvNotice && (
+        <div className="no-print p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between gap-2">
+          <span>{cvNotice}</span>
+          <button
+            onClick={() => setCvNotice(null)}
+            className="p-1 text-amber-700 dark:text-amber-300 shrink-0"
+            aria-label="Dismiss notice"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
+      )}
+
+      {/* Bengali Guidance Card */}
+      <div className="no-print p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="flex items-start gap-2.5">
+          <Lightbulb className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold block mb-0.5">{t.bengaliGuidanceTitle}:</span>
+            {t.bengaliGuidanceBody}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handlePrefillTemplate}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 font-bold text-xs shrink-0 self-start sm:self-center hover:bg-amber-50"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>Prefill Sample CV</span>
+        </button>
       </div>
 
       {activeTab === 'editor' ? (
         /* CV Editor Form */
-        <div className="space-y-4">
+        <div className="no-print space-y-4">
           {/* Section 1: Personal Details */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">
               1. {t.personalDetails}
             </h2>
@@ -260,7 +290,9 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                   type="number"
                   min="0"
                   value={cv.yearsInSingapore}
-                  onChange={(e) => onUpdateCV({ ...cv, yearsInSingapore: Number(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    onUpdateCV({ ...cv, yearsInSingapore: Number(e.target.value) || 0 })
+                  }
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                 />
               </div>
@@ -281,8 +313,8 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
           </div>
 
           {/* Section 2: Work Experience with Import History */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-            <div className="flex items-center justify-between">
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-bold text-slate-900 dark:text-white">
                 2. Singapore Work Experience
               </h2>
@@ -298,7 +330,10 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
 
             <div className="space-y-3">
               {cv.workExperience.map((exp, idx) => (
-                <div key={exp.id} className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2">
+                <div
+                  key={exp.id}
+                  className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-2"
+                >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
                       Job #{idx + 1}
@@ -324,7 +359,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                       value={exp.company}
                       onChange={(e) => {
                         const copy = [...cv.workExperience];
-                        copy[idx].company = e.target.value;
+                        copy[idx] = { ...copy[idx], company: e.target.value };
                         onUpdateCV({ ...cv, workExperience: copy });
                       }}
                       className="px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
@@ -335,7 +370,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                       value={exp.role}
                       onChange={(e) => {
                         const copy = [...cv.workExperience];
-                        copy[idx].role = e.target.value;
+                        copy[idx] = { ...copy[idx], role: e.target.value };
                         onUpdateCV({ ...cv, workExperience: copy });
                       }}
                       className="px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
@@ -346,7 +381,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                       value={exp.duration}
                       onChange={(e) => {
                         const copy = [...cv.workExperience];
-                        copy[idx].duration = e.target.value;
+                        copy[idx] = { ...copy[idx], duration: e.target.value };
                         onUpdateCV({ ...cv, workExperience: copy });
                       }}
                       className="px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
@@ -359,7 +394,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                     value={exp.responsibilities}
                     onChange={(e) => {
                       const copy = [...cv.workExperience];
-                      copy[idx].responsibilities = e.target.value;
+                      copy[idx] = { ...copy[idx], responsibilities: e.target.value };
                       onUpdateCV({ ...cv, workExperience: copy });
                     }}
                     className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700"
@@ -392,12 +427,11 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
           </div>
 
           {/* Section 3: Technical Skills & Driving Licence */}
-          <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-4">
             <h2 className="text-sm font-bold text-slate-900 dark:text-white">
               3. Technical Skills & Driving Licences
             </h2>
 
-            {/* Skills tag list */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1.5">
                 Technical Trade Skills
@@ -420,7 +454,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                 ))}
               </div>
 
-              <div className="flex items-center gap-2 max-w-md">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 max-w-md">
                 <input
                   type="text"
                   placeholder="e.g. Scaffolding, 3G Welding, Pipe Fitting"
@@ -443,7 +477,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                 {t.drivingLicence}
               </label>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="checkbox"
@@ -489,15 +523,20 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
               </label>
               <div className="space-y-1.5 mb-2">
                 {cv.certificates.map((cert) => (
-                  <div key={cert.id} className="flex items-center justify-between text-xs p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
-                    <div>
+                  <div
+                    key={cert.id}
+                    className="flex items-center justify-between gap-2 text-xs p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                  >
+                    <div className="min-w-0">
                       <span className="font-bold text-slate-900 dark:text-white">{cert.name}</span>
-                      <span className="text-slate-500 ml-2">({cert.issuer}, {cert.year})</span>
+                      <span className="text-slate-500 ml-2">
+                        ({cert.issuer}, {cert.year})
+                      </span>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleRemoveCert(cert.id)}
-                      className="text-slate-400 hover:text-red-500"
+                      className="text-slate-400 hover:text-red-500 shrink-0"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -505,7 +544,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                 ))}
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                 <input
                   type="text"
                   placeholder="Certificate Name (e.g. BCSS)"
@@ -525,7 +564,7 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
                   placeholder="Year (e.g. 2024)"
                   value={newCertYear}
                   onChange={(e) => setNewCertYear(e.target.value)}
-                  className="w-20 px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+                  className="px-2.5 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
                 />
                 <button
                   type="button"
@@ -540,11 +579,10 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
         </div>
       ) : (
         /* Live CV Preview (Paper representation) */
-        <div className="bg-white text-slate-900 p-8 sm:p-12 rounded-3xl border border-slate-300 shadow-xl max-w-3xl mx-auto space-y-6">
-          {/* Header */}
+        <div className="bg-white text-slate-900 p-5 sm:p-10 rounded-3xl border border-slate-300 shadow-xl max-w-3xl mx-auto space-y-5">
           <div className="border-b-2 border-slate-900 pb-4">
-            <h2 className="text-2xl sm:text-3xl font-extrabold uppercase tracking-tight text-slate-950">
-              {cv.fullName}
+            <h2 className="text-xl sm:text-3xl font-extrabold uppercase tracking-tight text-slate-950 break-words">
+              {cv.fullName || 'Your Name'}
             </h2>
             <div className="text-xs text-slate-600 mt-1 flex items-center gap-2 flex-wrap font-medium">
               <span>{cv.passType} Holder</span>
@@ -553,42 +591,52 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
               <span>·</span>
               <span>{cv.nationality}</span>
             </div>
-            <div className="text-xs text-slate-700 mt-1 flex items-center gap-4 flex-wrap">
-              <span><strong>Phone/WhatsApp:</strong> {cv.contactNumber}</span>
-              <span><strong>Location:</strong> {cv.residentialArea}</span>
-              {cv.email && <span><strong>Email:</strong> {cv.email}</span>}
+            <div className="text-xs text-slate-700 mt-1 flex items-center gap-x-4 gap-y-1 flex-wrap">
+              <span>
+                <strong>Phone/WhatsApp:</strong> {cv.contactNumber}
+              </span>
+              <span>
+                <strong>Location:</strong> {cv.residentialArea}
+              </span>
+              {cv.email && (
+                <span>
+                  <strong>Email:</strong> {cv.email}
+                </span>
+              )}
             </div>
           </div>
 
-          {/* Professional Summary */}
           <div>
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 bg-slate-100 p-1.5 rounded-lg mb-2">
               Professional Summary
             </h3>
-            <p className="text-xs text-slate-700 leading-relaxed">
-              {cv.professionalSummary}
-            </p>
+            <p className="text-xs text-slate-700 leading-relaxed">{cv.professionalSummary}</p>
           </div>
 
-          {/* Technical Skills */}
           <div>
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 bg-slate-100 p-1.5 rounded-lg mb-2">
               Core Skills & Certifications
             </h3>
             <div className="text-xs text-slate-700 space-y-1">
-              <div><strong>Key Technical Skills:</strong> {cv.skills.join(', ')}</div>
+              <div>
+                <strong>Key Technical Skills:</strong> {cv.skills.join(', ')}
+              </div>
               {cv.drivingLicence.hasLicence && (
-                <div><strong>Driving Licence:</strong> {cv.drivingLicence.licenceClass}</div>
+                <div>
+                  <strong>Driving Licence:</strong> {cv.drivingLicence.licenceClass}
+                </div>
               )}
               {cv.certificates.length > 0 && (
                 <div>
-                  <strong>Safety Certifications:</strong> {cv.certificates.map((c) => `${c.name} (${c.issuer}, ${c.year})`).join('; ')}
+                  <strong>Safety Certifications:</strong>{' '}
+                  {cv.certificates
+                    .map((c) => `${c.name} (${c.issuer}, ${c.year})`)
+                    .join('; ')}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Work Experience */}
           <div>
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 bg-slate-100 p-1.5 rounded-lg mb-2">
               Singapore Employment Experience
@@ -596,8 +644,10 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
             <div className="space-y-4">
               {cv.workExperience.map((exp) => (
                 <div key={exp.id}>
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-900">
-                    <span>{exp.role} — <span className="font-semibold text-slate-700">{exp.company}</span></span>
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-xs font-bold text-slate-900">
+                    <span>
+                      {exp.role} — <span className="font-semibold text-slate-700">{exp.company}</span>
+                    </span>
                     <span className="text-slate-500 font-normal">{exp.duration}</span>
                   </div>
                   <p className="text-xs text-slate-600 mt-1 leading-relaxed">
@@ -608,17 +658,20 @@ export const CVBuilderView: React.FC<CVBuilderViewProps> = ({
             </div>
           </div>
 
-          {/* Languages & Education */}
           <div className="pt-2 border-t border-slate-200">
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-900 bg-slate-100 p-1.5 rounded-lg mb-2">
               Languages & Education
             </h3>
             <div className="text-xs text-slate-700 space-y-1">
               <div>
-                <strong>Languages:</strong> {cv.languages.map((l) => `${l.name} (${l.level})`).join(' · ')}
+                <strong>Languages:</strong>{' '}
+                {cv.languages.map((l) => `${l.name} (${l.level})`).join(' · ')}
               </div>
               <div>
-                <strong>Education:</strong> {cv.education.map((e) => `${e.qualification} - ${e.institution} (${e.year})`).join('; ')}
+                <strong>Education:</strong>{' '}
+                {cv.education
+                  .map((e) => `${e.qualification} - ${e.institution} (${e.year})`)
+                  .join('; ')}
               </div>
             </div>
           </div>

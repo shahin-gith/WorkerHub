@@ -4,9 +4,8 @@ export const STATUTORY_NOTICE =
   'Notice: These figures are user-configured estimates based on the settings and time card logs provided. Under the Singapore Employment Act, exact entitlements may depend on whether you are covered under Part IV (workmen earning up to $4,500/month or non-workmen earning up to $2,600/month), your written In-Principle Approval (IPA), Key Employment Terms (KETs), and specific collective agreements. This tool is not legal advice.';
 
 /**
- * Calculates the hourly basic rate of pay based on the selected calculation basis and mode.
- * Supports direct Hourly Basic Rate of Pay ($2.50 / hr default) or MOM formula:
- * (12 × Monthly basic rate of pay) / (52 × 44).
+ * Calculates the Hourly Basic Rate of Pay ($2.50 / hr default across all 3 sections)
+ * and daily rate based on the selected calculation basis.
  */
 export function calculateHourlyRate(settings: SalarySettings): {
   hourlyRate: number;
@@ -19,9 +18,31 @@ export function calculateHourlyRate(settings: SalarySettings): {
   const weeklyHours = Math.round(daysPerWeek * hoursPerDay * 10) / 10;
   const basic = Math.max(0, settings.basicSalary || 0);
 
+  // Default Hourly Basic Rate of Pay is $2.50 / hr across all 3 sections
+  const fixedHourlyRate = Math.max(0, settings.customHourlyBasicRate ?? 2.5);
+  const hourlyRate = Math.round(fixedHourlyRate * 100) / 100;
+
   if (settings.calculationBasis === 'hourly') {
-    const hourlyRate = Math.round(basic * 100) / 100;
-    const dailyRate = Math.round(hourlyRate * hoursPerDay * 100) / 100;
+    const effectiveHourly =
+      settings.customHourlyBasicRate !== undefined
+        ? hourlyRate
+        : basic > 0
+          ? Math.round(basic * 100) / 100
+          : 2.5;
+    const dailyRate = Math.round(effectiveHourly * hoursPerDay * 100) / 100;
+    return {
+      hourlyRate: effectiveHourly,
+      dailyRate,
+      weeklyHours,
+      formulaDescription: `Hourly Basic Rate of Pay: $${effectiveHourly.toFixed(2)} / hr`,
+    };
+  }
+
+  if (settings.calculationBasis === 'daily') {
+    const dailyRate =
+      basic > 0
+        ? Math.round(basic * 100) / 100
+        : Math.round(hourlyRate * hoursPerDay * 100) / 100;
     return {
       hourlyRate,
       dailyRate,
@@ -30,38 +51,12 @@ export function calculateHourlyRate(settings: SalarySettings): {
     };
   }
 
-  if (settings.calculationBasis === 'daily') {
-    const dailyRate = Math.round(basic * 100) / 100;
-    const hourlyRate = Math.round((dailyRate / hoursPerDay) * 100) / 100;
-    return {
-      hourlyRate,
-      dailyRate,
-      weeklyHours,
-      formulaDescription: `Daily rate ($${dailyRate.toFixed(2)}) ÷ ${hoursPerDay}h/day = $${hourlyRate.toFixed(2)} / hr`,
-    };
-  }
-
-  // Monthly basic salary mode
+  // Monthly basic salary mode (Section 1)
   const dailyRate =
     basic > 0
       ? Math.round(((12 * basic) / (52 * daysPerWeek)) * 100) / 100
-      : Math.round((settings.customHourlyBasicRate ?? 2.5) * hoursPerDay * 100) / 100;
+      : Math.round(hourlyRate * hoursPerDay * 100) / 100;
 
-  if (settings.hourlyRateMode === 'mom_formula') {
-    // MOM statutory formula: (12 × Monthly basic rate of pay) / (52 × 44)
-    const rawHourlyRate = (12 * basic) / (52 * 44);
-    const hourlyRate = Math.round(rawHourlyRate * 100) / 100;
-    return {
-      hourlyRate,
-      dailyRate,
-      weeklyHours: 44,
-      formulaDescription: `(12 × $${basic.toFixed(2)}) ÷ (52 × 44) = $${hourlyRate.toFixed(2)} / hr`,
-    };
-  }
-
-  // Fixed Hourly Basic Rate of Pay (default $2.50 / hr)
-  const fixedRate = Math.max(0, settings.customHourlyBasicRate ?? 2.5);
-  const hourlyRate = Math.round(fixedRate * 100) / 100;
   return {
     hourlyRate,
     dailyRate,
@@ -99,7 +94,7 @@ export function calculateMonthlySalary(
       label: 'Basic Work Pay (Hourly Basis)',
       formula: `${summary.totalNormalHours.toFixed(1)} normal hours × $${hourlyRate.toFixed(2)}/hr`,
       amount: basicPayCalculated,
-      explanation: 'Calculated by multiplying total logged normal hours by your hourly rate.',
+      explanation: `Calculated using Hourly Basic Rate of Pay ($${hourlyRate.toFixed(2)}/hr) × normal hours worked.`,
     });
   } else {
     formulaSteps.push({
@@ -157,7 +152,7 @@ export function calculateMonthlySalary(
       label: 'Unpaid Leave Deduction',
       formula: `${summary.unpaidLeaveDaysCount} days × daily rate ($${dailyRate.toFixed(2)})`,
       amount: -unpaidLeaveDeductionTotal,
-      explanation: 'MOM incomplete month formula deducts the daily rate for every day of unpaid absence.',
+      explanation: 'Incomplete month deduction removes the daily rate for every day of unpaid absence.',
     });
   }
 
@@ -236,7 +231,7 @@ export function calculateMonthlySalary(
 }
 
 /**
- * Clean production default salary settings with $2.50 / hr Hourly Basic Rate of Pay.
+ * Default salary settings with Hourly Basic Rate of Pay: $2.50 / hr across all 3 sections.
  */
 export const DEFAULT_SALARY_SETTINGS: SalarySettings = {
   calculationBasis: 'monthly',
@@ -250,8 +245,8 @@ export const DEFAULT_SALARY_SETTINGS: SalarySettings = {
   otMultiplierPublicHoliday: 2.0,
   allowancesList: [],
   deductionsList: [],
-  defaultCompany: '',
-  defaultWorksite: '',
+  defaultCompany: 'Singapore Construction & Marine Pte Ltd',
+  defaultWorksite: 'Main Project Worksite',
   defaultStartTime: '08:00',
   defaultEndTime: '17:00',
   defaultBreakMinutes: 60,

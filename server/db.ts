@@ -13,31 +13,34 @@ export const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
 
+// Detect legacy email-account schema (v1) and migrate cleanly to Device User ID schema (v2)
+const userCols = db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>;
+const hasLegacyEmailCol = userCols.some((c) => c.name === 'email');
+
+if (hasLegacyEmailCol) {
+  db.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP TABLE IF EXISTS otp_codes;
+    DROP TABLE IF EXISTS sessions;
+    DROP TABLE IF EXISTS user_shifts;
+    DROP TABLE IF EXISTS user_documents;
+    DROP TABLE IF EXISTS user_company_history;
+    DROP TABLE IF EXISTS user_finance;
+    DROP TABLE IF EXISTS user_profiles_json;
+    DROP TABLE IF EXISTS company_reviews;
+    DROP TABLE IF EXISTS users;
+    PRAGMA foreign_keys = ON;
+  `);
+}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    full_name TEXT NOT NULL,
-    password_hash TEXT NOT NULL,
-    password_salt TEXT NOT NULL,
-    email_verified INTEGER NOT NULL DEFAULT 0,
+    display_name TEXT NOT NULL DEFAULT 'Worker',
     role TEXT NOT NULL DEFAULT 'worker',
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );
-
-  CREATE TABLE IF NOT EXISTS otp_codes (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL,
-    purpose TEXT NOT NULL,
-    otp_hash TEXT NOT NULL,
-    otp_salt TEXT NOT NULL,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    expires_at INTEGER NOT NULL,
-    created_at INTEGER NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_otp_email_purpose ON otp_codes(email, purpose);
 
   CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
@@ -107,6 +110,8 @@ db.exec(`
     user_id TEXT NOT NULL,
     type TEXT NOT NULL,
     category TEXT NOT NULL,
+    account_id TEXT NOT NULL DEFAULT 'acc-cash',
+    account_name TEXT NOT NULL DEFAULT 'Cash Wallet',
     amount_sgd REAL NOT NULL,
     amount_foreign REAL,
     foreign_currency TEXT,
@@ -123,6 +128,7 @@ db.exec(`
     salary_settings_json TEXT,
     cv_json TEXT,
     savings_goal_json TEXT,
+    money_accounts_json TEXT,
     dashboard_config_json TEXT,
     updated_at INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -140,8 +146,57 @@ db.exec(`
     title TEXT NOT NULL DEFAULT '',
     comment TEXT NOT NULL,
     employment_status TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending',
+    status TEXT NOT NULL DEFAULT 'approved',
+    likes_count INTEGER NOT NULL DEFAULT 0,
+    google_source_url TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS review_likes (
+    review_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (review_id, user_id),
+    FOREIGN KEY (review_id) REFERENCES company_reviews(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS help_articles (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    content TEXT NOT NULL,
+    language TEXT NOT NULL DEFAULT 'en',
+    author_label TEXT NOT NULL DEFAULT 'Worker Community',
+    source_url TEXT NOT NULL DEFAULT '',
+    likes_count INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS help_article_likes (
+    article_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (article_id, user_id),
+    FOREIGN KEY (article_id) REFERENCES help_articles(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
 `);
+
+// Ensure new columns exist if DB already initialized in v2
+const ensureColumn = (table: string, col: string, ddl: string) => {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl};`);
+  }
+};
+
+ensureColumn('user_finance', 'account_id', "account_id TEXT NOT NULL DEFAULT 'acc-cash'");
+ensureColumn('user_finance', 'account_name', "account_name TEXT NOT NULL DEFAULT 'Cash Wallet'");
+ensureColumn('user_profiles_json', 'money_accounts_json', 'money_accounts_json TEXT');
+ensureColumn('company_reviews', 'likes_count', 'likes_count INTEGER NOT NULL DEFAULT 0');
+ensureColumn('company_reviews', 'google_source_url', "google_source_url TEXT NOT NULL DEFAULT ''");

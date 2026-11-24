@@ -1,10 +1,15 @@
 import {
-  AuthUser,
   CompanyHistoryItem,
   CompanyReview,
   DashboardCardConfig,
+  DeviceUser,
   DocumentItem,
   FinanceTransaction,
+  GoogleCompanyResult,
+  HelpArticle,
+  HelpSearchResult,
+  Language,
+  MoneyAccount,
   SalarySettings,
   SavingsGoal,
   SingaporeCV,
@@ -19,12 +24,13 @@ export interface AccountDataBundle {
   salarySettings: SalarySettings | null;
   cv: SingaporeCV | null;
   savingsGoal: SavingsGoal | null;
+  moneyAccounts: MoneyAccount[] | null;
   dashboardConfig: DashboardCardConfig | null;
 }
 
-export interface AuthResponse {
+export interface DeviceAuthResponse {
   token: string;
-  user: AuthUser;
+  user: DeviceUser;
   data: AccountDataBundle;
 }
 
@@ -51,10 +57,8 @@ async function request<T>(
   if (!res.ok) {
     const err = new Error(payload.error || `Request failed (${res.status})`) as Error & {
       status?: number;
-      needsVerification?: boolean;
     };
     err.status = res.status;
-    err.needsVerification = payload.needsVerification;
     throw err;
   }
 
@@ -62,60 +66,30 @@ async function request<T>(
 }
 
 export const apiClient = {
-  getEmailStatus() {
-    return request<{ emailConfigured: boolean; provider: 'resend' | 'smtp' | 'none' }>(
-      '/api/auth/status'
+  initDevice(displayName?: string) {
+    return request<DeviceAuthResponse>('/api/device/init', {
+      method: 'POST',
+      body: JSON.stringify({ displayName }),
+    });
+  },
+
+  connectDevice(userId: string, autoCreateIfMissing = false) {
+    return request<DeviceAuthResponse>('/api/device/connect', {
+      method: 'POST',
+      body: JSON.stringify({ userId, autoCreateIfMissing }),
+    });
+  },
+
+  updateDeviceProfile(token: string, displayName: string) {
+    return request<{ user: DeviceUser }>(
+      '/api/device/profile',
+      { method: 'PATCH', body: JSON.stringify({ displayName }) },
+      token
     );
   },
 
-  register(fullName: string, email: string, password: string) {
-    return request<{ sent: boolean; message: string }>('/api/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ fullName, email, password }),
-    });
-  },
-
-  verifyRegistration(email: string, otp: string) {
-    return request<AuthResponse>('/api/auth/verify-registration', {
-      method: 'POST',
-      body: JSON.stringify({ email, otp }),
-    });
-  },
-
-  sendOtp(email: string, purpose: 'verify_account' | 'login' | 'reset_password') {
-    return request<{ sent: boolean; message: string }>('/api/auth/send-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email, purpose }),
-    });
-  },
-
-  loginWithPassword(email: string, password: string) {
-    return request<AuthResponse>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-  },
-
-  loginWithOtp(email: string, otp: string) {
-    return request<AuthResponse>('/api/auth/login-otp', {
-      method: 'POST',
-      body: JSON.stringify({ email, otp }),
-    });
-  },
-
-  resetPassword(email: string, otp: string, newPassword: string) {
-    return request<{ success: boolean; message: string }>('/api/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ email, otp, newPassword }),
-    });
-  },
-
-  logout(token: string) {
-    return request<{ success: boolean }>('/api/auth/logout', { method: 'POST' }, token);
-  },
-
-  deleteAccount(token: string) {
-    return request<{ success: boolean }>('/api/auth/account', { method: 'DELETE' }, token);
+  deleteDeviceAccount(token: string) {
+    return request<{ success: boolean }>('/api/device/account', { method: 'DELETE' }, token);
   },
 
   getAccountData(token: string) {
@@ -218,6 +192,14 @@ export const apiClient = {
     );
   },
 
+  saveMoneyAccounts(token: string, accounts: MoneyAccount[]) {
+    return request<{ success: boolean }>(
+      '/api/account/money-accounts',
+      { method: 'PUT', body: JSON.stringify(accounts) },
+      token
+    );
+  },
+
   saveDashboardConfig(token: string, config: DashboardCardConfig) {
     return request<{ success: boolean }>(
       '/api/account/dashboard-config',
@@ -226,14 +208,32 @@ export const apiClient = {
     );
   },
 
-  getReviews(token?: string | null) {
-    return request<{ reviews: CompanyReview[]; isAdmin: boolean }>('/api/reviews', {}, token);
+  searchGoogleCompanies(query: string) {
+    return request<{
+      companies: GoogleCompanyResult[];
+      groundingLinks: Array<{ title: string; uri: string }>;
+    }>(`/api/companies/search?q=${encodeURIComponent(query)}`);
   },
 
-  submitReview(token: string, review: Omit<CompanyReview, 'id' | 'status' | 'createdAt'>) {
+  getReviews(token?: string | null) {
+    return request<{ reviews: CompanyReview[] }>('/api/reviews', {}, token);
+  },
+
+  submitReview(
+    token: string,
+    review: Omit<CompanyReview, 'id' | 'status' | 'createdAt' | 'likesCount' | 'likedByMe' | 'userId'>
+  ) {
     return request<{ success: boolean; id: string }>(
       '/api/reviews',
       { method: 'POST', body: JSON.stringify(review) },
+      token
+    );
+  },
+
+  likeReview(token: string, id: string) {
+    return request<{ likedByMe: boolean; likesCount: number }>(
+      `/api/reviews/${encodeURIComponent(id)}/like`,
+      { method: 'POST' },
       token
     );
   },
@@ -246,17 +246,54 @@ export const apiClient = {
     );
   },
 
-  moderateReview(token: string, id: string, status: 'approved' | 'flagged') {
+  deleteReview(token: string, id: string) {
     return request<{ success: boolean }>(
-      `/api/reviews/${encodeURIComponent(id)}/moderate`,
-      { method: 'PATCH', body: JSON.stringify({ status }) },
+      `/api/reviews/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
       token
     );
   },
 
-  deleteReview(token: string, id: string) {
+  searchHelpArticles(query: string, lang: Language) {
+    return request<HelpSearchResult>(
+      `/api/help/search?q=${encodeURIComponent(query)}&lang=${lang}`
+    );
+  },
+
+  getHelpArticles(token?: string | null) {
+    return request<{ articles: HelpArticle[] }>('/api/help/articles', {}, token);
+  },
+
+  postHelpArticle(
+    token: string,
+    article: {
+      title: string;
+      category: HelpArticle['category'];
+      summary: string;
+      content: string;
+      language: Language;
+      authorLabel?: string;
+      sourceUrl?: string;
+    }
+  ) {
+    return request<{ success: boolean; id: string }>(
+      '/api/help/articles',
+      { method: 'POST', body: JSON.stringify(article) },
+      token
+    );
+  },
+
+  likeHelpArticle(token: string, id: string) {
+    return request<{ likedByMe: boolean; likesCount: number }>(
+      `/api/help/articles/${encodeURIComponent(id)}/like`,
+      { method: 'POST' },
+      token
+    );
+  },
+
+  deleteHelpArticle(token: string, id: string) {
     return request<{ success: boolean }>(
-      `/api/reviews/${encodeURIComponent(id)}`,
+      `/api/help/articles/${encodeURIComponent(id)}`,
       { method: 'DELETE' },
       token
     );

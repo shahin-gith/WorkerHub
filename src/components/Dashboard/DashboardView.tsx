@@ -85,7 +85,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   });
 
   return (
-    <div className="space-y-4 pb-20 max-w-5xl mx-auto px-4 pt-4">
+    <div className="space-y-4 pb-24 max-w-5xl mx-auto px-3 sm:px-4 pt-4">
       {/* Header bar with customize action */}
       <div className="flex items-center justify-between">
         <div>

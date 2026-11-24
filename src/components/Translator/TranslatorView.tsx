@@ -69,11 +69,11 @@ export const TranslatorView: React.FC<TranslatorViewProps> = ({ language }) => {
   }, [searchQuery, selectedCat]);
 
   return (
-    <div className="space-y-4 pb-20 max-w-5xl mx-auto px-4 pt-4">
+    <div className="space-y-4 pb-24 max-w-5xl mx-auto px-3 sm:px-4 pt-4">
       {/* Header */}
       <div>
         <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <Languages className="w-6 h-6 text-amber-500" />
+          <Languages className="w-6 h-6 text-amber-500 shrink-0" />
           {t.translatorTitle}
         </h1>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -88,13 +88,13 @@ export const TranslatorView: React.FC<TranslatorViewProps> = ({ language }) => {
           <span className="font-bold text-slate-800 dark:text-slate-200 block mb-0.5">
             Offline Verified Workplace Dictionary:
           </span>
-          Includes standard Singapore construction, safety, medical, and MOM phrases with Bengali phonetic pronunciation for zero-barrier worksite communication. Ready to connect external Translation APIs.
+          Includes standard Singapore construction, safety, medical, and MOM phrases with Bengali phonetic pronunciation for zero-barrier worksite communication.
         </div>
       </div>
 
       {/* Quick Lookup & Translate Card */}
-      <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-bold text-slate-900 dark:text-white">
             <Sparkles className="w-4 h-4 text-amber-500" />
             <span>{t.customTranslation}</span>
@@ -113,7 +113,7 @@ export const TranslatorView: React.FC<TranslatorViewProps> = ({ language }) => {
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
           <input
             type="text"
             placeholder={direction === 'en-to-bn' ? 'Type English phrase (e.g. Safety harness)...' : 'বাংলায় লিখুন (যেমন: সেফটি বেল্ট)...'}

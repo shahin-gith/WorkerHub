@@ -1,17 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  FileText, 
-  Plus, 
-  Search, 
-  Trash2, 
-  Calendar, 
-  AlertTriangle, 
-  CheckCircle2, 
-  UploadCloud, 
-  ShieldCheck, 
+import {
+  FileText,
+  Plus,
+  Search,
+  Trash2,
+  UploadCloud,
+  ShieldCheck,
   X,
   FileCheck2,
-  Lock
+  Lock,
+  Download,
+  AlertCircle,
 } from 'lucide-react';
 import { DocumentItem, DocumentCategory, Language } from '../../types';
 import { getTranslation } from '../../services/i18n';
@@ -22,6 +21,8 @@ interface DocumentVaultViewProps {
   onSaveDocument: (doc: DocumentItem) => void;
   onDeleteDocument: (id: string) => void;
 }
+
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
 
 export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
   language,
@@ -35,8 +36,8 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Form State
   const [formData, setFormData] = useState<{
     name: string;
     category: DocumentCategory;
@@ -45,6 +46,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
     notes: string;
     fileName?: string;
     fileDataUrl?: string;
+    fileSizeKb?: number;
   }>({
     name: '',
     category: 'work_permit',
@@ -55,12 +57,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
 
   const now = new Date();
 
-  // Filtered & enriched documents
   const filteredDocs = useMemo(() => {
     return documents
       .filter((doc) => {
         const matchesCategory = selectedCategory === 'all' || doc.category === selectedCategory;
-        const matchesQuery = 
+        const matchesQuery =
           doc.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           (doc.notes && doc.notes.toLowerCase().includes(searchQuery.toLowerCase()));
         return matchesCategory && matchesQuery;
@@ -79,15 +80,15 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
         if (a.diffDays !== null && b.diffDays !== null) return a.diffDays - b.diffDays;
         return 0;
       });
-  }, [documents, searchQuery, selectedCategory, now]);
+  }, [documents, searchQuery, selectedCategory]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    setUploadError(null);
     if (!file) return;
 
-    // Limit client-side storage to 2MB per file to keep localStorage healthy
-    if (file.size > 2 * 1024 * 1024) {
-      alert('File is too large for local browser storage. Please upload an image under 2MB.');
+    if (file.size > MAX_FILE_BYTES) {
+      setUploadError('File exceeds 5MB limit. Please choose a file under 5MB.');
       return;
     }
 
@@ -97,6 +98,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
         ...prev,
         fileName: file.name,
         fileDataUrl: reader.result as string,
+        fileSizeKb: Math.max(1, Math.round(file.size / 1024)),
       }));
     };
     reader.readAsDataURL(file);
@@ -115,11 +117,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
       notes: formData.notes.trim(),
       fileName: formData.fileName,
       fileDataUrl: formData.fileDataUrl,
+      fileSizeKb: formData.fileSizeKb,
       createdAt: Date.now(),
     };
 
     onSaveDocument(newDoc);
     setIsAddModalOpen(false);
+    setUploadError(null);
     setFormData({
       name: '',
       category: 'work_permit',
@@ -142,13 +146,13 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
   };
 
   return (
-    <div className="space-y-4 pb-20 max-w-5xl mx-auto px-4 pt-4">
+    <div className="space-y-4 pb-24 max-w-5xl mx-auto px-3 sm:px-4 pt-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <Lock className="w-5 h-5 text-amber-500" />
-            {t.docVaultTitle}
+            <Lock className="w-5 h-5 text-amber-500 shrink-0" />
+            <span>{t.docVaultTitle}</span>
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             {t.docVaultSubtitle}
@@ -156,8 +160,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
         </div>
 
         <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors shadow-sm self-start sm:self-auto"
+          onClick={() => {
+            setUploadError(null);
+            setIsAddModalOpen(true);
+          }}
+          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors shadow-sm self-start sm:self-auto"
         >
           <Plus className="w-4 h-4" />
           <span>{t.addDocBtn}</span>
@@ -168,7 +175,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
       <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
         <ShieldCheck className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
         <div>
-          <span className="font-bold block mb-0.5">Zero-Leak Local Privacy:</span>
+          <span className="font-bold block mb-0.5">Private Document Storage (Up to 5MB / file):</span>
           {t.docWarning}
         </div>
       </div>
@@ -197,7 +204,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
             <button
               key={cat.id}
               onClick={() => setSelectedCategory(cat.id)}
-              className={`px-2.5 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors ${
+              className={`px-2.5 py-1.5 text-xs font-semibold rounded-lg whitespace-nowrap transition-colors ${
                 selectedCategory === cat.id
                   ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
@@ -225,82 +232,111 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
             </button>
           </div>
         ) : (
-          filteredDocs.map((doc) => (
-            <div
-              key={doc.id}
-              className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:border-amber-400 dark:hover:border-amber-600/50 transition-colors"
-            >
-              <div>
-                {/* Status Badge & Category */}
-                <div className="flex items-center justify-between text-xs mb-2">
-                  <span className="font-semibold text-slate-500 dark:text-slate-400">
-                    {getCategoryName(doc.category)}
-                  </span>
-                  {doc.status === 'expired' && (
-                    <span className="text-[10px] font-bold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/60 px-2 py-0.5 rounded">
-                      {t.expired}
+          filteredDocs.map((doc) => {
+            const isPdf = doc.fileDataUrl?.startsWith('data:application/pdf');
+            return (
+              <div
+                key={doc.id}
+                className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between hover:border-amber-400 dark:hover:border-amber-600/50 transition-colors"
+              >
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-2 gap-2">
+                    <span className="font-semibold text-slate-500 dark:text-slate-400">
+                      {getCategoryName(doc.category)}
                     </span>
-                  )}
-                  {doc.status === 'expiring_soon' && (
-                    <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded">
-                      {doc.diffDays} {t.daysRemaining}
-                    </span>
-                  )}
-                  {doc.status === 'active' && (
-                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded">
-                      {t.activeDoc} ({doc.diffDays}d)
-                    </span>
-                  )}
-                </div>
-
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1.5">
-                  {doc.name}
-                </h3>
-
-                <div className="text-xs text-slate-500 space-y-1 mb-2">
-                  {doc.issueDate && (
-                    <div>
-                      <span>{t.issueDate}:</span> <strong className="text-slate-700 dark:text-slate-300">{doc.issueDate}</strong>
-                    </div>
-                  )}
-                  {doc.expiryDate && (
-                    <div>
-                      <span>{t.expiryDate}:</span> <strong className="text-slate-700 dark:text-slate-300">{doc.expiryDate}</strong>
-                    </div>
-                  )}
-                </div>
-
-                {doc.notes && (
-                  <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-xl mb-3">
-                    {doc.notes}
-                  </p>
-                )}
-
-                {doc.fileDataUrl && (
-                  <div className="mt-2 mb-3">
-                    <img
-                      src={doc.fileDataUrl}
-                      alt={doc.name}
-                      className="w-full h-28 object-cover rounded-xl border border-slate-200 dark:border-slate-700"
-                    />
+                    {doc.status === 'expired' && (
+                      <span className="text-[10px] font-bold text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-950/60 px-2 py-0.5 rounded">
+                        {t.expired}
+                      </span>
+                    )}
+                    {doc.status === 'expiring_soon' && (
+                      <span className="text-[10px] font-bold text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded">
+                        {doc.diffDays} {t.daysRemaining}
+                      </span>
+                    )}
+                    {doc.status === 'active' && (
+                      <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/60 px-2 py-0.5 rounded">
+                        {t.activeDoc} ({doc.diffDays}d)
+                      </span>
+                    )}
                   </div>
-                )}
-              </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
-                <span className="text-[11px] text-slate-400">
-                  {new Date(doc.createdAt).toLocaleDateString()}
-                </span>
-                <button
-                  onClick={() => setDeleteConfirmId(doc.id)}
-                  className="p-1 text-slate-400 hover:text-red-500 rounded"
-                  title={t.delete}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-1.5 break-words">
+                    {doc.name}
+                  </h3>
+
+                  <div className="text-xs text-slate-500 space-y-1 mb-2">
+                    {doc.issueDate && (
+                      <div>
+                        <span>{t.issueDate}:</span>{' '}
+                        <strong className="text-slate-700 dark:text-slate-300">{doc.issueDate}</strong>
+                      </div>
+                    )}
+                    {doc.expiryDate && (
+                      <div>
+                        <span>{t.expiryDate}:</span>{' '}
+                        <strong className="text-slate-700 dark:text-slate-300">{doc.expiryDate}</strong>
+                      </div>
+                    )}
+                  </div>
+
+                  {doc.notes && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/60 p-2 rounded-xl mb-3 break-words">
+                      {doc.notes}
+                    </p>
+                  )}
+
+                  {doc.fileDataUrl && !isPdf && (
+                    <div className="mt-2 mb-3">
+                      <img
+                        src={doc.fileDataUrl}
+                        alt={doc.name}
+                        className="w-full h-32 object-cover rounded-xl border border-slate-200 dark:border-slate-700"
+                      />
+                    </div>
+                  )}
+
+                  {doc.fileDataUrl && isPdf && (
+                    <div className="mt-2 mb-3 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between gap-2 text-xs">
+                      <span className="truncate font-semibold text-slate-700 dark:text-slate-200">
+                        📄 {doc.fileName || 'Document.pdf'}
+                      </span>
+                      {doc.fileSizeKb && (
+                        <span className="text-[10px] text-slate-400 shrink-0">
+                          {(doc.fileSizeKb / 1024).toFixed(2)} MB
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
+                  <span className="text-[11px] text-slate-400">
+                    {new Date(doc.createdAt).toLocaleDateString()}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {doc.fileDataUrl && (
+                      <a
+                        href={doc.fileDataUrl}
+                        download={doc.fileName || `${doc.name}.file`}
+                        className="p-1.5 text-slate-500 hover:text-amber-600 rounded"
+                        title="Download file"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                    )}
+                    <button
+                      onClick={() => setDeleteConfirmId(doc.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-500 rounded"
+                      title={t.delete}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
@@ -338,7 +374,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
       {/* Add Document Modal */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-6 shadow-2xl border border-slate-200 dark:border-slate-800 my-8">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 my-8">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 mb-4">
               <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <FileCheck2 className="w-4 h-4 text-amber-500" />
@@ -359,7 +395,9 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
                 </label>
                 <select
                   value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value as DocumentCategory })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, category: e.target.value as DocumentCategory })
+                  }
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
                 >
                   <option value="work_permit">{t.catWorkPermit}</option>
@@ -379,7 +417,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="e.g. MOM Work Permit Card (Green Card)"
+                  placeholder="e.g. MOM Work Permit Card / Passport Copy"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
@@ -419,7 +457,7 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
                 <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 p-4 rounded-2xl text-center">
                   <UploadCloud className="w-8 h-8 text-slate-400 mx-auto mb-1.5" />
                   <label className="cursor-pointer text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline">
-                    <span>Select photo or scan</span>
+                    <span>Select photo, scan, or PDF</span>
                     <input
                       type="file"
                       accept="image/*,application/pdf"
@@ -427,10 +465,19 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
                       className="hidden"
                     />
                   </label>
-                  <p className="text-[11px] text-slate-400 mt-1">PNG, JPG up to 2MB (kept on device)</p>
-                  {formData.fileName && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    PNG, JPG, WEBP or PDF up to 5MB
+                  </p>
+                  {uploadError && (
+                    <div className="mt-2 text-xs font-semibold text-red-600 flex items-center justify-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      <span>{uploadError}</span>
+                    </div>
+                  )}
+                  {formData.fileName && !uploadError && (
                     <div className="mt-2 text-xs font-semibold text-emerald-600">
-                      ✓ Attached: {formData.fileName}
+                      ✓ Attached: {formData.fileName} (
+                      {formData.fileSizeKb ? `${(formData.fileSizeKb / 1024).toFixed(2)} MB` : ''})
                     </div>
                   )}
                 </div>
@@ -438,11 +485,11 @@ export const DocumentVaultView: React.FC<DocumentVaultViewProps> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Notes / Document Number
+                  Notes / Reference Number
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. FIN: G8923411M or Passport No: A02948214"
+                  placeholder="Optional reference number or notes"
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"

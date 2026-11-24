@@ -4,6 +4,11 @@
   html {
     font-family: 'Plus Jakarta Sans', 'Noto Sans Bengali', system-ui, -apple-system, sans-serif;
     -webkit-tap-highlight-color: transparent;
+    overflow-x: hidden;
+  }
+
+  body {
+    overflow-x: hidden;
   }
 }
 
@@ -16,6 +21,9 @@
 }
 
 @media print {
+  @page {
+    margin: 10mm;
+  }
   body {
     background: white !important;
     color: black !important;
