@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#0f172a"/>
+  <!-- Hardhat & Heart & Shield motif for WorkerHub -->
+  <path d="M120 320 C120 220, 392 220, 392 320 Z" fill="#f59e0b" />
+  <rect x="96" y="320" width="320" height="32" rx="16" fill="#d97706" />
+  <path d="M256 160 V220" stroke="#f59e0b" stroke-width="24" stroke-linecap="round"/>
+  <circle cx="256" cy="140" r="16" fill="#f59e0b"/>
+  <!-- Safety shield / checkmark -->
+  <circle cx="360" cy="380" r="64" fill="#10b981"/>
+  <path d="M336 380 L352 396 L384 364" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
