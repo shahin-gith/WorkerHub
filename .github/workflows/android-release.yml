@@ -1,0 +1,41 @@
+name: Build Android APK & Play Store AAB
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install dependencies & sync offline Android bundle
+        run: |
+          npm ci
+          npm run android:sync
+
+      - name: Build Debug APK & Release APK + Play Store AAB
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug assembleRelease bundleRelease
+
+      - name: Upload APK & Play Store AAB Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: workerhub-android-builds
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/bundle/release/*.aab

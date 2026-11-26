@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">WorkerHub Singapore</string>
+    <string name="title_activity_main">WorkerHub Singapore</string>
+    <string name="package_name">com.workerhub.singapore</string>
+    <string name="custom_url_scheme">com.workerhub.singapore</string>
+</resources>

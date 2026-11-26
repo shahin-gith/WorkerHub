@@ -1,15 +1,14 @@
 import React from 'react';
-import { Shield, Globe, Moon, Sun, Smartphone, WifiOff, CheckCircle2 } from 'lucide-react';
-import { DeviceUser, Language } from '../../types';
+import { Shield, Globe, Moon, Sun, UserCheck, HardDrive } from 'lucide-react';
+import { Language, UserAccount } from '../../types';
 
 interface TopBarProps {
   language: Language;
   onLanguageChange: (lang: Language) => void;
   theme: 'light' | 'dark';
   onThemeToggle: () => void;
-  isOnline: boolean;
-  deviceUser: DeviceUser | null;
-  onOpenDeviceIdModal: () => void;
+  currentUser: UserAccount | null;
+  onOpenAccountModal: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -17,9 +16,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onLanguageChange,
   theme,
   onThemeToggle,
-  isOnline,
-  deviceUser,
-  onOpenDeviceIdModal,
+  currentUser,
+  onOpenAccountModal,
 }) => {
   return (
     <header className="no-print sticky top-0 z-30 w-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 transition-colors">
@@ -34,38 +32,33 @@ export const TopBar: React.FC<TopBarProps> = ({
               WorkerHub
             </span>
             <span className="text-[9px] sm:text-[10px] text-amber-600 dark:text-amber-400 font-semibold tracking-wider uppercase mt-0.5">
-              Singapore
+              Singapore · Offline
             </span>
           </div>
         </div>
 
-        {/* Zone 2: Sync / Storage Status */}
+        {/* Zone 2: Offline Vault Status */}
         <div className="hidden md:flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
-          {!isOnline ? (
-            <span className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
-              <WifiOff className="w-3.5 h-3.5" />
-              <span>Offline Mode</span>
+          <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium">
+            <HardDrive className="w-3.5 h-3.5" />
+            <span>
+              {currentUser
+                ? `Offline Vault · ${currentUser.email}`
+                : 'Offline Mode · Guest Profile'}
             </span>
-          ) : deviceUser ? (
-            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span>Auto-Synced · Device ID #{deviceUser.id}</span>
-            </span>
-          ) : (
-            <span className="text-slate-500 dark:text-slate-400">Connecting device ID...</span>
-          )}
+          </span>
         </div>
 
-        {/* Zone 3: Interactive Controls (mobile-friendly compact sizing) */}
+        {/* Zone 3: Interactive Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
-            onClick={onOpenDeviceIdModal}
-            className="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors whitespace-nowrap shadow-sm"
-            title="View or Switch Device User ID"
+            onClick={onOpenAccountModal}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] sm:text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 transition-colors whitespace-nowrap shadow-sm max-w-[160px] sm:max-w-[220px]"
+            title="Switch or Manage Email Account"
           >
-            <Smartphone className="w-3.5 h-3.5 shrink-0" />
-            <span className="font-mono">
-              {deviceUser ? `ID: ${deviceUser.id}` : 'User ID'}
+            <UserCheck className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">
+              {currentUser ? currentUser.fullName.split(' ')[0] : 'Account / Login'}
             </span>
           </button>
 

@@ -3,45 +3,36 @@ import {
   Star,
   Plus,
   ShieldCheck,
-  Flag,
   X,
   Search,
   ThumbsUp,
-  ExternalLink,
   Building2,
   MapPin,
   Trash2,
-  Loader2,
-  AlertCircle,
 } from 'lucide-react';
-import {
-  CompanyReview,
-  DeviceUser,
-  GoogleCompanyResult,
-  Language,
-} from '../../types';
+import { CompanyReview, Language, UserAccount } from '../../types';
 import { getTranslation } from '../../services/i18n';
-import { apiClient } from '../../services/apiClient';
+import { OFFLINE_SINGAPORE_COMPANIES, OfflineCompanyEntry } from '../../services/offlineDirectoryData';
 
 interface CompanyReviewsViewProps {
   language: Language;
   reviews: CompanyReview[];
-  deviceUser: DeviceUser | null;
+  currentUser: UserAccount | null;
+  actorId: string;
   onSubmitReview: (
     review: Omit<CompanyReview, 'id' | 'status' | 'createdAt' | 'likesCount' | 'likedByMe' | 'userId'>
   ) => Promise<void>;
   onLikeReview: (id: string) => Promise<void>;
-  onReportReview: (id: string) => Promise<void>;
   onDeleteReview: (id: string) => Promise<void>;
 }
 
 export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
   language,
   reviews,
-  deviceUser,
+  currentUser,
+  actorId,
   onSubmitReview,
   onLikeReview,
-  onReportReview,
   onDeleteReview,
 }) => {
   const t = getTranslation(language);
@@ -51,12 +42,9 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [reviewFilterQuery, setReviewFilterQuery] = useState('');
 
-  // Live Google Company Search state
-  const [googleQuery, setGoogleQuery] = useState('');
-  const [searchingGoogle, setSearchingGoogle] = useState(false);
-  const [googleError, setGoogleError] = useState<string | null>(null);
-  const [googleCompanies, setGoogleCompanies] = useState<GoogleCompanyResult[]>([]);
-  const [groundingLinks, setGroundingLinks] = useState<Array<{ title: string; uri: string }>>([]);
+  // Offline Singapore Company Directory Search
+  const [companyQuery, setCompanyQuery] = useState('');
+  const [selectedIndustry, setSelectedIndustry] = useState<string>('All');
 
   const [formData, setFormData] = useState<{
     companyName: string;
@@ -68,7 +56,6 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
     title: string;
     comment: string;
     employmentStatus: CompanyReview['employmentStatus'];
-    googleSourceUrl?: string;
   }>({
     companyName: '',
     industry: 'Construction',
@@ -79,8 +66,22 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
     title: '',
     comment: '',
     employmentStatus: 'Current Worker',
-    googleSourceUrl: undefined,
   });
+
+  const matchingCompanies = useMemo(() => {
+    const q = companyQuery.trim().toLowerCase();
+    return OFFLINE_SINGAPORE_COMPANIES.filter((c) => {
+      const matchesIndustry = selectedIndustry === 'All' || c.industry === selectedIndustry;
+      if (!matchesIndustry) return false;
+      if (!q) return true;
+      return (
+        c.name.toLowerCase().includes(q) ||
+        c.industry.toLowerCase().includes(q) ||
+        c.address.toLowerCase().includes(q) ||
+        c.description.toLowerCase().includes(q)
+      );
+    }).slice(0, q ? 12 : 6);
+  }, [companyQuery, selectedIndustry]);
 
   const visibleReviews = useMemo(() => {
     const q = reviewFilterQuery.trim().toLowerCase();
@@ -96,36 +97,11 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
     });
   }, [reviews, reviewFilterQuery]);
 
-  const handleGoogleSearch = async (queryOverride?: string) => {
-    const q = (queryOverride ?? googleQuery).trim();
-    if (q.length < 2) {
-      setGoogleError('Enter at least 2 characters to search Singapore companies on Google.');
-      return;
-    }
-    setSearchingGoogle(true);
-    setGoogleError(null);
-    try {
-      const res = await apiClient.searchGoogleCompanies(q);
-      setGoogleCompanies(res.companies || []);
-      setGroundingLinks(res.groundingLinks || []);
-      if ((!res.companies || res.companies.length === 0) && (!res.groundingLinks || res.groundingLinks.length === 0)) {
-        setGoogleError(`No Singapore companies matched "${q}". You can still enter the company name manually below.`);
-      }
-    } catch (err: unknown) {
-      setGoogleError((err as Error).message || 'Live Google company search failed.');
-      setGoogleCompanies([]);
-      setGroundingLinks([]);
-    } finally {
-      setSearchingGoogle(false);
-    }
-  };
-
-  const handleSelectGoogleCompany = (company: GoogleCompanyResult) => {
+  const handleSelectCompany = (company: OfflineCompanyEntry) => {
     setFormData((prev) => ({
       ...prev,
       companyName: company.name,
       industry: company.industry || 'Construction',
-      googleSourceUrl: company.sourceUrl,
     }));
     setIsSubmitModalOpen(true);
   };
@@ -146,7 +122,6 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         title: formData.title.trim() || `${formData.industry} Experience`,
         comment: formData.comment.trim(),
         employmentStatus: formData.employmentStatus,
-        googleSourceUrl: formData.googleSourceUrl,
       });
       setIsSubmitModalOpen(false);
       setFormData({
@@ -159,9 +134,8 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         title: '',
         comment: '',
         employmentStatus: 'Current Worker',
-        googleSourceUrl: undefined,
       });
-      setStatusNotice('Your company review is now published live.');
+      setStatusNotice('Your company review is saved offline to this device.');
     } catch (err: unknown) {
       setStatusNotice((err as Error).message);
     } finally {
@@ -205,17 +179,17 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         </button>
       </div>
 
-      {/* Live Google Singapore Company Search Card */}
+      {/* Offline Singapore Company Directory Search */}
       <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-amber-500 shrink-0" />
             <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-              Live Google Search — Find Singapore Company to Review
+              Singapore Company Directory (Works 100% Offline)
             </h2>
           </div>
-          <span className="text-[11px] text-slate-500">
-            Powered by Google Search
+          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+            {OFFLINE_SINGAPORE_COMPANIES.length} Employers Included
           </span>
         </div>
 
@@ -224,127 +198,89 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder="Search Singapore company name (e.g. Seatrium, Woh Hup, Kimly Construction)..."
-              value={googleQuery}
-              onChange={(e) => setGoogleQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleGoogleSearch()}
+              placeholder="Search Singapore company (e.g. Seatrium, Woh Hup, Kimly, Tuas)..."
+              value={companyQuery}
+              onChange={(e) => setCompanyQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
             />
           </div>
-          <button
-            type="button"
-            onClick={() => handleGoogleSearch()}
-            disabled={searchingGoogle}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold text-xs shrink-0 disabled:opacity-50"
+
+          <select
+            value={selectedIndustry}
+            onChange={(e) => setSelectedIndustry(e.target.value)}
+            className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
           >
-            {searchingGoogle ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Searching...</span>
-              </>
-            ) : (
-              <>
-                <Search className="w-3.5 h-3.5" />
-                <span>Search Google</span>
-              </>
-            )}
-          </button>
+            <option value="All">All Industries</option>
+            <option value="Construction">Construction</option>
+            <option value="Marine Shipyard">Marine Shipyard</option>
+            <option value="Process">Process</option>
+            <option value="Manufacturing">Manufacturing</option>
+            <option value="Services">Services</option>
+          </select>
         </div>
 
-        {googleError && (
-          <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{googleError}</span>
+        {matchingCompanies.length === 0 ? (
+          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs">
+            <span className="text-slate-600 dark:text-slate-300">
+              Company "{companyQuery}" not in offline directory yet. Add a review for it directly!
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setFormData((prev) => ({ ...prev, companyName: companyQuery.trim() }));
+                setIsSubmitModalOpen(true);
+              }}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 text-slate-950 font-bold shrink-0"
+            >
+              Review "{companyQuery.trim()}"
+            </button>
           </div>
-        )}
-
-        {googleCompanies.length > 0 && (
-          <div className="space-y-2 pt-1">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-              Matching Singapore Companies
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-              {googleCompanies.map((company, idx) => (
-                <div
-                  key={`${company.name}-${idx}`}
-                  className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex flex-col justify-between gap-2.5"
-                >
-                  <div className="space-y-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
-                        {company.name}
-                      </h3>
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 shrink-0">
-                        {company.industry}
-                      </span>
-                    </div>
-                    {company.address && (
-                      <div className="text-[11px] text-slate-500 flex items-start gap-1">
-                        <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
-                        <span>{company.address}</span>
-                      </div>
-                    )}
-                    {company.description && (
-                      <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
-                        {company.description}
-                      </p>
-                    )}
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {matchingCompanies.map((company) => (
+              <div
+                key={company.name}
+                className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 flex flex-col justify-between gap-2"
+              >
+                <div className="space-y-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
+                      {company.name}
+                    </h3>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-200 shrink-0">
+                      {company.industry}
+                    </span>
                   </div>
-
-                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200/70 dark:border-slate-700">
-                    {company.sourceUrl ? (
-                      <a
-                        href={company.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline truncate"
-                      >
-                        <ExternalLink className="w-3 h-3 shrink-0" />
-                        <span className="truncate">{company.sourceTitle || 'Verify on Google'}</span>
-                      </a>
-                    ) : (
-                      <span className="text-[11px] text-slate-400">Singapore Business</span>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => handleSelectGoogleCompany(company)}
-                      className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shrink-0"
-                    >
-                      Write Review
-                    </button>
+                  <div className="text-[11px] text-slate-500 flex items-start gap-1">
+                    <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                    <span>{company.address}</span>
                   </div>
+                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                    {company.description}
+                  </p>
                 </div>
-              ))}
-            </div>
 
-            {groundingLinks.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-500">
-                <span className="font-semibold">Google Sources:</span>
-                {groundingLinks.slice(0, 4).map((lnk, i) => (
-                  <a
-                    key={i}
-                    href={lnk.uri}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-blue-600 dark:text-blue-400 hover:underline"
+                <div className="flex justify-end pt-1 border-t border-slate-200/70 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectCompany(company)}
+                    className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs"
                   >
-                    <span>{lnk.title}</span>
-                    <ExternalLink className="w-2.5 h-2.5" />
-                  </a>
-                ))}
+                    Write Review
+                  </button>
+                </div>
               </div>
-            )}
+            ))}
           </div>
         )}
       </div>
 
-      {/* Community Guidelines Policy Notice */}
+      {/* Community Policy Notice */}
       <div className="p-3.5 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2.5">
         <ShieldCheck className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
         <div>
           <span className="font-bold text-slate-800 dark:text-slate-200 block mb-0.5">
-            Fair Community Reviews (User ID: {deviceUser?.id || 'Device Mode'}):
+            Posting as: {currentUser ? `${currentUser.fullName} (${currentUser.email})` : 'Offline Guest'}
           </span>
           {t.reviewDisclaimer}
         </div>
@@ -362,7 +298,7 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
       {/* Filter Published Reviews */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
         <h2 className="text-sm font-bold text-slate-900 dark:text-white px-1">
-          {t.tabCommunityReviews} ({visibleReviews.length})
+          Saved Reviews ({visibleReviews.length})
         </h2>
 
         <div className="relative w-full sm:w-72">
@@ -382,12 +318,12 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
         {visibleReviews.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 p-8 rounded-2xl border border-slate-200 dark:border-slate-800 text-center">
             <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-              No reviews match yet. Search a Singapore company above and share your honest experience!
+              No reviews match yet. Pick a Singapore company above and save your experience!
             </p>
           </div>
         ) : (
           visibleReviews.map((rev) => {
-            const isOwnReview = Boolean(deviceUser?.id && rev.userId === deviceUser.id);
+            const isOwnReview = Boolean(actorId && rev.userId === actorId);
 
             return (
               <div
@@ -401,21 +337,9 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                         {rev.companyName}
                       </h3>
                       <span className="text-[11px] text-slate-500">· {rev.industry}</span>
-                      {rev.googleSourceUrl && (
-                        <a
-                          href={rev.googleSourceUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-0.5 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-                        >
-                          <span>Google</span>
-                          <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
-                      )}
                     </div>
                     <div className="text-xs text-amber-600 dark:text-amber-400 font-semibold mt-0.5">
                       {rev.employmentStatus}
-                      {rev.userId ? ` · Worker #${rev.userId.slice(-4)}` : ''}
                     </div>
                   </div>
 
@@ -460,43 +384,31 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                   {rev.comment}
                 </p>
 
-                {/* Interactive Footer: Like Button + Report / Delete */}
+                {/* Interactive Footer: Like Button + Delete */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-[11px]">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onLikeReview(rev.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-colors ${
-                        rev.likedByMe
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40'
-                      }`}
-                    >
-                      <ThumbsUp className="w-3.5 h-3.5" />
-                      <span>Helpful ({rev.likesCount || 0})</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onLikeReview(rev.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-colors ${
+                      rev.likedByMe
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-amber-50 dark:hover:bg-amber-950/40'
+                    }`}
+                  >
+                    <ThumbsUp className="w-3.5 h-3.5" />
+                    <span>Helpful ({rev.likesCount || 0})</span>
+                  </button>
 
-                  <div className="flex items-center gap-3 text-slate-400">
-                    {isOwnReview && (
-                      <button
-                        type="button"
-                        onClick={() => onDeleteReview(rev.id)}
-                        className="flex items-center gap-1 text-red-500 hover:text-red-600 font-semibold"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Delete</span>
-                      </button>
-                    )}
+                  {isOwnReview && (
                     <button
                       type="button"
-                      onClick={() => onReportReview(rev.id)}
-                      className="flex items-center gap-1 hover:text-red-500 transition-colors"
+                      onClick={() => onDeleteReview(rev.id)}
+                      className="flex items-center gap-1 text-red-500 hover:text-red-600 font-semibold"
                     >
-                      <Flag className="w-3 h-3" />
-                      <span>Report</span>
+                      <Trash2 className="w-3 h-3" />
+                      <span>Delete</span>
                     </button>
-                  </div>
+                  )}
                 </div>
               </div>
             );
@@ -527,27 +439,14 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                     {t.company} *
                   </label>
-                  <div className="flex gap-1.5">
-                    <input
-                      type="text"
-                      required
-                      placeholder="Enter company name"
-                      value={formData.companyName}
-                      onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
-                      className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setGoogleQuery(formData.companyName);
-                        handleGoogleSearch(formData.companyName);
-                      }}
-                      className="px-2.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold shrink-0"
-                      title="Lookup on Google"
-                    >
-                      <Search className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enter company name"
+                    value={formData.companyName}
+                    onChange={(e) => setFormData({ ...formData, companyName: e.target.value })}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  />
                 </div>
 
                 <div>
@@ -596,7 +495,6 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                 </div>
               </div>
 
-              {/* 4 Ratings Sliders */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
@@ -703,7 +601,7 @@ export const CompanyReviewsView: React.FC<CompanyReviewsViewProps> = ({
                   disabled={submitting}
                   className="px-5 py-2 text-xs font-bold rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 transition-all shadow-sm"
                 >
-                  {submitting ? 'Posting...' : 'Post Review'}
+                  {submitting ? 'Saving...' : 'Post Review'}
                 </button>
               </div>
             </form>

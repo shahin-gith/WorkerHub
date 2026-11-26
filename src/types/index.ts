@@ -52,11 +52,12 @@ export interface SalarySettings {
   defaultBreakMinutes: number;
 }
 
-export interface DeviceUser {
-  id: string; // 8-digit numeric User ID e.g. "48291037"
-  displayName: string;
-  role: 'worker' | 'admin';
+export interface UserAccount {
+  id: string;
+  email: string;
+  fullName: string;
   createdAt: number;
+  lastLoginAt: number;
 }
 
 export interface MonthlySummary {

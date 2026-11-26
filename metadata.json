@@ -1,6 +1,6 @@
 {
   "name": "WorkerHub Singapore",
-  "description": "Mobile-first, practical web app for migrant workers in Singapore with Time Card tracking, custom Salary & OT calculation, Document Vault, Singapore CV Builder, verified resources, and Bengali support.",
+  "description": "Offline Android companion app for migrant workers in Singapore with Time Card tracking, custom Salary & OT calculation, Document Vault, Singapore CV Builder, Email multi-account switcher, and Bengali support.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": []
 }
