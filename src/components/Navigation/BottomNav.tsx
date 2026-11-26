@@ -1,34 +1,26 @@
 import React from 'react';
-import { 
-  LayoutDashboard, 
-  Clock, 
-  Calculator, 
-  FileText, 
+import {
+  LayoutDashboard,
+  Calculator,
   MoreHorizontal,
   FileCheck,
   History,
-  DollarSign,
   Star,
   LifeBuoy,
   Languages,
-  Settings,
-  Sparkles
+  Sparkles,
 } from 'lucide-react';
 import { Language } from '../../types';
 import { getTranslation } from '../../services/i18n';
 
-export type ActiveTab = 
-  | 'dashboard' 
-  | 'timecard' 
-  | 'salary' 
-  | 'documents' 
-  | 'cv' 
-  | 'history' 
-  | 'finance' 
-  | 'reviews' 
-  | 'help' 
-  | 'translator' 
-  | 'settings';
+export type ActiveTab =
+  | 'dashboard'
+  | 'salary'
+  | 'cv'
+  | 'history'
+  | 'reviews'
+  | 'help'
+  | 'translator';
 
 interface BottomNavProps {
   activeTab: ActiveTab;
@@ -49,19 +41,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   const mainTabs = [
     { id: 'dashboard', label: t.navDashboard, icon: LayoutDashboard },
-    { id: 'timecard', label: t.navTimeCard, icon: Clock },
     { id: 'salary', label: t.navSalary, icon: Calculator },
-    { id: 'documents', label: t.navDocuments, icon: FileText },
+    { id: 'cv', label: t.navCV, icon: FileCheck },
+    { id: 'help', label: t.navHelp, icon: LifeBuoy },
   ] as const;
 
   const moreItems = [
-    { id: 'cv', label: t.navCV, icon: FileCheck, desc: 'Singapore standard CV generator' },
     { id: 'history', label: t.navHistory, icon: History, desc: 'Track past Singapore employers' },
-    { id: 'finance', label: t.navFinance, icon: DollarSign, desc: 'Remittances to Bangladesh & expenses' },
-    { id: 'reviews', label: t.navReviews, icon: Star, desc: 'Worker company experiences & ratings' },
-    { id: 'help', label: t.navHelp, icon: LifeBuoy, desc: 'MOM, High Commission & emergency numbers' },
+    { id: 'reviews', label: t.navReviews, icon: Star, desc: 'Singapore company directory & worker reviews' },
     { id: 'translator', label: t.navTranslator, icon: Languages, desc: 'Worksite phrases & pronunciation' },
-    { id: 'settings', label: t.navSettings, icon: Settings, desc: 'Export backup & data privacy' },
   ] as const;
 
   const isMoreActive = moreItems.some((item) => item.id === activeTab);
@@ -70,14 +58,16 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     <>
       {/* More Drawer Modal for Mobile */}
       {showMoreDrawer && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm transition-opacity">
-          <div 
+        <div
+          className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm transition-opacity"
+          onClick={() => setShowMoreDrawer(false)}
+        >
+          <div
             className="w-full max-w-lg mx-auto bg-white dark:bg-slate-900 rounded-t-3xl p-5 shadow-2xl border-t border-slate-200 dark:border-slate-800 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Grab handle */}
             <div className="w-12 h-1.5 bg-slate-300 dark:bg-slate-700 rounded-full mx-auto mb-4" />
-            
+
             <div className="flex items-center justify-between mb-4 pb-2 border-b border-slate-100 dark:border-slate-800">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-500" />
@@ -108,7 +98,13 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                         : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
                     }`}
                   >
-                    <div className={`p-2 rounded-lg ${active ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'}`}>
+                    <div
+                      className={`p-2 rounded-lg ${
+                        active
+                          ? 'bg-amber-500 text-slate-950'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
                       <Icon className="w-4 h-4" />
                     </div>
                     <div>
@@ -124,7 +120,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       )}
 
       {/* Fixed Bottom Navigation Bar (Mobile) */}
-      <nav 
+      <nav
         aria-label="Mobile Navigation"
         className="no-print md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg"
       >
@@ -141,32 +137,49 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 }}
                 className="flex flex-col items-center justify-center h-full min-h-[48px] py-1 transition-all active:scale-95"
               >
-                <div className={`p-1 rounded-md transition-colors ${active ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+                <div
+                  className={`p-1 rounded-md transition-colors ${
+                    active ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'
+                  }`}
+                >
                   <Icon className="w-5 h-5" />
                 </div>
-                <span className={`text-[10px] tracking-tight mt-0.5 truncate max-w-[64px] ${active ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
+                <span
+                  className={`text-[10px] tracking-tight mt-0.5 truncate max-w-[64px] ${
+                    active ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-500 dark:text-slate-400'
+                  }`}
+                >
                   {tab.label}
                 </span>
               </button>
             );
           })}
 
-          {/* More Tab Trigger */}
           <button
             onClick={() => setShowMoreDrawer(!showMoreDrawer)}
             className="flex flex-col items-center justify-center h-full min-h-[48px] py-1 transition-all active:scale-95"
           >
-            <div className={`p-1 rounded-md transition-colors ${isMoreActive || showMoreDrawer ? 'text-amber-600 dark:text-amber-400 font-bold' : 'text-slate-500 dark:text-slate-400'}`}>
+            <div
+              className={`p-1 rounded-md transition-colors ${
+                isMoreActive || showMoreDrawer
+                  ? 'text-amber-600 dark:text-amber-400 font-bold'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+            >
               <MoreHorizontal className="w-5 h-5" />
             </div>
-            <span className={`text-[10px] tracking-tight mt-0.5 truncate max-w-[64px] ${isMoreActive ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-500 dark:text-slate-400'}`}>
+            <span
+              className={`text-[10px] tracking-tight mt-0.5 truncate max-w-[64px] ${
+                isMoreActive ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-500 dark:text-slate-400'
+              }`}
+            >
               {t.navMore}
             </span>
           </button>
         </div>
       </nav>
 
-      {/* Desktop Top Sub-Nav Ribbon (visible on md: screens) */}
+      {/* Desktop Top Sub-Nav Ribbon */}
       <div className="no-print hidden md:block bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
         <div className="max-w-6xl mx-auto px-4 flex items-center gap-1 overflow-x-auto py-2">
           {mainTabs.map((tab) => {

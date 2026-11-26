@@ -35,14 +35,14 @@ export interface AllowanceDeductionItem {
 
 export interface SalarySettings {
   calculationBasis: SalaryCalculationBasis;
-  basicSalary: number; // monthly or daily or hourly based on calculationBasis
+  basicSalary: number;
   hourlyRateMode?: 'fixed';
   customHourlyBasicRate?: number; // defaults to 2.50 across all 3 sections
-  workingDaysPerWeek: number; // e.g., 6 or 5.5 or 5
-  normalHoursPerDay: number; // e.g., 8 or 9
-  otMultiplierNormal: number; // typically 1.5
-  otMultiplierSundayRest: number; // typically 2.0
-  otMultiplierPublicHoliday: number; // typically 2.0
+  workingDaysPerWeek: number;
+  normalHoursPerDay: number;
+  otMultiplierNormal: number;
+  otMultiplierSundayRest: number;
+  otMultiplierPublicHoliday: number;
   allowancesList: AllowanceDeductionItem[];
   deductionsList: AllowanceDeductionItem[];
   defaultCompany: string;
@@ -52,12 +52,13 @@ export interface SalarySettings {
   defaultBreakMinutes: number;
 }
 
-export interface UserAccount {
-  id: string;
-  email: string;
-  fullName: string;
-  createdAt: number;
-  lastLoginAt: number;
+export interface ManualWorkSummary {
+  workingDaysCount: number;
+  totalNormalHours: number;
+  totalOtHours: number;
+  restDaysWorkedCount: number;
+  publicHolidaysWorkedCount: number;
+  unpaidLeaveDaysCount: number;
 }
 
 export interface MonthlySummary {
@@ -108,28 +109,6 @@ export interface SalaryBreakdown {
   formulaSteps: FormulaStep[];
 }
 
-export type DocumentCategory =
-  | 'work_permit'
-  | 'passport'
-  | 'employment_contract'
-  | 'medical'
-  | 'payslip'
-  | 'certificate'
-  | 'other';
-
-export interface DocumentItem {
-  id: string;
-  name: string;
-  category: DocumentCategory;
-  issueDate?: string; // YYYY-MM-DD
-  expiryDate?: string; // YYYY-MM-DD
-  notes?: string;
-  fileName?: string;
-  fileDataUrl?: string; // stored in Base64 if attached (up to 5MB)
-  fileSizeKb?: number;
-  createdAt: number;
-}
-
 export interface CompanyHistoryItem {
   id: string;
   companyName: string;
@@ -156,9 +135,9 @@ export interface SingaporeCV {
   fullName: string;
   contactNumber: string;
   email: string;
-  residentialArea: string; // e.g. Jurong / Woodlands / Tuas
-  nationality: string; // Bangladeshi / Indian / etc.
-  passType: string; // Work Permit / S Pass
+  residentialArea: string;
+  nationality: string;
+  passType: string;
   yearsInSingapore: number;
   professionalSummary: string;
   workExperience: WorkExperienceEntry[];
@@ -172,11 +151,11 @@ export interface SingaporeCV {
   languages: Array<{
     id: string;
     name: string;
-    level: string; // Basic / Conversational / Fluent
+    level: string;
   }>;
   drivingLicence: {
     hasLicence: boolean;
-    licenceClass: string; // Class 3, Class 4, 3A, Forklift
+    licenceClass: string;
   };
   certificates: Array<{
     id: string;
@@ -191,27 +170,18 @@ export interface CompanyReview {
   userId?: string;
   companyName: string;
   industry: 'Construction' | 'Marine Shipyard' | 'Manufacturing' | 'Process' | 'Services' | 'Other';
-  ratingWorkEnv: number; // 1-5
-  ratingSalaryPayment: number; // 1-5
-  ratingAccommodation: number; // 1-5
-  ratingManagement: number; // 1-5
+  ratingWorkEnv: number;
+  ratingSalaryPayment: number;
+  ratingAccommodation: number;
+  ratingManagement: number;
   title: string;
   comment: string;
   employmentStatus: 'Current Worker' | 'Former Worker';
   status: 'approved' | 'pending' | 'flagged';
   likesCount: number;
   likedByMe?: boolean;
-  googleSourceUrl?: string;
+  isOwn?: boolean;
   createdAt: number;
-}
-
-export interface GoogleCompanyResult {
-  name: string;
-  industry: 'Construction' | 'Marine Shipyard' | 'Manufacturing' | 'Process' | 'Services' | 'Other';
-  address: string;
-  description: string;
-  sourceUrl?: string;
-  sourceTitle?: string;
 }
 
 export interface HelpArticle {
@@ -230,68 +200,8 @@ export interface HelpArticle {
   createdAt: number;
 }
 
-export interface HelpSearchResult {
-  summaryText: string;
-  articles: Array<{
-    title: string;
-    summary: string;
-    category: HelpArticle['category'];
-    url: string;
-    sourceName: string;
-  }>;
-  groundingLinks: Array<{ title: string; uri: string }>;
-}
-
-export type MoneyAccountType = 'cash' | 'bank' | 'savings' | 'mobile_wallet';
-
-export interface MoneyAccount {
-  id: string;
-  name: string;
-  type: MoneyAccountType;
-  initialBalance: number;
-  createdAt: number;
-}
-
-export type FinanceCategory =
-  | 'salary'
-  | 'overtime'
-  | 'food'
-  | 'remittance'
-  | 'dormitory'
-  | 'transport'
-  | 'mobile_data'
-  | 'medical'
-  | 'entertainment'
-  | 'other';
-
-export interface FinanceTransaction {
-  id: string;
-  type: 'income' | 'expense' | 'remittance';
-  category: FinanceCategory;
-  accountId?: string;
-  accountName?: string;
-  amountSgd: number;
-  amountForeign?: number;
-  foreignCurrency?: string; // e.g. 'BDT'
-  exchangeRate?: number;
-  date: string; // YYYY-MM-DD
-  notes?: string;
-  createdAt: number;
-}
-
-export interface SavingsGoal {
-  id: string;
-  title: string;
-  targetSgd: number;
-  currentSgd: number;
-  targetDate: string;
-}
-
 export interface DashboardCardConfig {
-  showTodaySummary: boolean;
-  showMonthStats: boolean;
   showSalaryEstimate: boolean;
-  showExpiryAlerts: boolean;
   showQuickActions: boolean;
   showEmergencyHelp: boolean;
 }

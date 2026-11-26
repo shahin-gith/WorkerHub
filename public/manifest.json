@@ -2,7 +2,7 @@
   "id": "/",
   "name": "WorkerHub Singapore",
   "short_name": "WorkerHub",
-  "description": "Essential work, salary, overtime, and document assistant for migrant workers in Singapore.",
+  "description": "Offline companion app for migrant workers in Singapore with Salary & OT Calculator, CV Builder, Company Reviews, and Worker Help.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

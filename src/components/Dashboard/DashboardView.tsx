@@ -1,59 +1,51 @@
 import React, { useState } from 'react';
-import { 
-  Calendar, 
-  Clock, 
-  Briefcase, 
-  DollarSign, 
-  AlertTriangle, 
-  PlusCircle, 
-  ChevronRight, 
-  FileCheck, 
-  PhoneCall, 
+import {
+  Calendar,
+  Clock,
+  Briefcase,
+  DollarSign,
+  FileCheck,
+  PhoneCall,
   ShieldAlert,
   SlidersHorizontal,
-  X
+  Star,
+  X,
 } from 'lucide-react';
-import { 
-  Language, 
-  WorkShift, 
-  SalarySettings, 
-  DocumentItem, 
-  DashboardCardConfig 
+import {
+  Language,
+  SalarySettings,
+  ManualWorkSummary,
+  DashboardCardConfig,
+  MonthlySummary,
 } from '../../types';
 import { getTranslation } from '../../services/i18n';
-import { getMonthlySummary } from '../../services/workHoursEngine';
 import { calculateMonthlySalary } from '../../services/salaryEngine';
 import { ActiveTab } from '../Navigation/BottomNav';
 
 interface DashboardViewProps {
   language: Language;
-  shifts: WorkShift[];
   salarySettings: SalarySettings;
-  documents: DocumentItem[];
+  manualWorkSummary: ManualWorkSummary;
   dashboardConfig: DashboardCardConfig;
   onUpdateDashboardConfig: (cfg: DashboardCardConfig) => void;
   onNavigate: (tab: ActiveTab) => void;
-  onOpenLogShiftModal: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   language,
-  shifts,
   salarySettings,
-  documents,
+  manualWorkSummary,
   dashboardConfig,
   onUpdateDashboardConfig,
   onNavigate,
-  onOpenLogShiftModal,
 }) => {
   const t = getTranslation(language);
   const [showConfigModal, setShowConfigModal] = useState(false);
 
   const now = new Date();
   const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1; // 1-12
+  const currentMonth = now.getMonth() + 1;
 
-  // Format today's date
   const todayFormatted = now.toLocaleDateString(language === 'bn' ? 'bn-BD' : 'en-SG', {
     weekday: 'long',
     year: 'numeric',
@@ -61,28 +53,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     day: 'numeric',
   });
 
-  // Calculate monthly metrics
-  const monthSummary = getMonthlySummary(shifts, currentYear, currentMonth);
-  const hasBasicSalary = (salarySettings.basicSalary || 0) > 0;
-  const salaryBreakdown = calculateMonthlySalary(salarySettings, monthSummary);
+  const monthSummary: MonthlySummary = {
+    year: currentYear,
+    month: currentMonth,
+    totalShiftsCount: 0,
+    workingDaysCount: manualWorkSummary.workingDaysCount,
+    restDaysWorkedCount: manualWorkSummary.restDaysWorkedCount,
+    publicHolidaysWorkedCount: manualWorkSummary.publicHolidaysWorkedCount,
+    mcDaysCount: 0,
+    paidLeaveDaysCount: 0,
+    unpaidLeaveDaysCount: manualWorkSummary.unpaidLeaveDaysCount,
+    totalNormalHours: manualWorkSummary.totalNormalHours,
+    totalOtHours: manualWorkSummary.totalOtHours,
+    totalWorkingHours: manualWorkSummary.totalNormalHours + manualWorkSummary.totalOtHours,
+    shifts: [],
+  };
 
-  // Check upcoming document expiries within 30 days
-  const upcomingExpiries = documents.filter((doc) => {
-    if (!doc.expiryDate) return false;
-    const expDate = new Date(doc.expiryDate);
-    const diffTime = expDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays <= 30; // within 30 days or expired
-  }).map((doc) => {
-    const expDate = new Date(doc.expiryDate!);
-    const diffTime = expDate.getTime() - now.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return {
-      ...doc,
-      diffDays,
-      isExpired: diffDays < 0,
-    };
-  });
+  const salaryBreakdown = calculateMonthlySalary(salarySettings, monthSummary);
+  const hasPayInput =
+    (salarySettings.basicSalary || 0) > 0 ||
+    salarySettings.calculationBasis === 'hourly';
 
   return (
     <div className="space-y-4 pb-24 max-w-5xl mx-auto px-3 sm:px-4 pt-4">
@@ -108,114 +98,80 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </button>
       </div>
 
-      {/* Expiry Alerts Card (if any documents are expiring soon) */}
-      {dashboardConfig.showExpiryAlerts && upcomingExpiries.length > 0 && (
-        <div className="rounded-2xl border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30 p-4 shadow-sm">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-300 font-bold text-sm">
-              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
-              <span>{t.upcomingExpiries}</span>
-            </div>
-            <button
-              onClick={() => onNavigate('documents')}
-              className="text-xs font-semibold text-amber-800 dark:text-amber-200 hover:underline flex items-center gap-0.5"
-            >
-              <span>{t.navDocuments}</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {upcomingExpiries.map((doc) => (
-              <div
-                key={doc.id}
-                className="flex items-center justify-between text-xs bg-white dark:bg-slate-900/80 p-2.5 rounded-xl border border-amber-100 dark:border-amber-900/40"
-              >
-                <div>
-                  <div className="font-semibold text-slate-900 dark:text-white">{doc.name}</div>
-                  <div className="text-slate-500 text-[11px]">
-                    {t.expiryDate}: {doc.expiryDate}
-                  </div>
-                </div>
-                <div className="text-right">
-                  {doc.isExpired ? (
-                    <span className="text-red-600 dark:text-red-400 font-bold px-2 py-0.5 rounded bg-red-50 dark:bg-red-950/60">
-                      {t.expired} ({Math.abs(doc.diffDays)}d ago)
-                    </span>
-                  ) : (
-                    <span className="text-amber-700 dark:text-amber-300 font-bold px-2 py-0.5 rounded bg-amber-100/70 dark:bg-amber-900/40">
-                      {doc.diffDays} {t.daysRemaining}
-                    </span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Monthly Summary Statistics Grid */}
-      {dashboardConfig.showMonthStats && (
+      {/* Salary & Work Estimate Summary Grid */}
+      {dashboardConfig.showSalaryEstimate && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Total Working Days */}
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <button
+            type="button"
+            onClick={() => onNavigate('salary')}
+            className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between text-left hover:border-amber-400 transition-colors"
+          >
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-xs font-semibold">{t.workingDays}</span>
               <Briefcase className="w-4 h-4 text-amber-500" />
             </div>
             <div className="mt-3">
               <span className="text-2xl font-bold tabular-nums text-slate-900 dark:text-white">
-                {monthSummary.workingDaysCount}
+                {manualWorkSummary.workingDaysCount}
               </span>
-              <span className="text-xs text-slate-500 ml-1">/ 31</span>
+              <span className="text-xs text-slate-500 ml-1">days</span>
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              {monthSummary.restDaysWorkedCount > 0 ? `+${monthSummary.restDaysWorkedCount} Rest Days Worked` : 'This month'}
+              Tap to adjust in Calculator
             </div>
-          </div>
+          </button>
 
-          {/* Normal Hours */}
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <button
+            type="button"
+            onClick={() => onNavigate('salary')}
+            className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between text-left hover:border-amber-400 transition-colors"
+          >
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-xs font-semibold">{t.normalHours}</span>
               <Clock className="w-4 h-4 text-blue-500" />
             </div>
             <div className="mt-3">
               <span className="text-2xl font-bold tabular-nums text-slate-900 dark:text-white">
-                {monthSummary.totalNormalHours.toFixed(1)}
+                {manualWorkSummary.totalNormalHours.toFixed(1)}
               </span>
               <span className="text-xs text-slate-500 ml-1">hrs</span>
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Standard contract hours
+              Standard work hours
             </div>
-          </div>
+          </button>
 
-          {/* Overtime Hours */}
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <button
+            type="button"
+            onClick={() => onNavigate('salary')}
+            className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between text-left hover:border-amber-400 transition-colors"
+          >
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-xs font-semibold">{t.otHours}</span>
               <Clock className="w-4 h-4 text-emerald-500" />
             </div>
             <div className="mt-3">
               <span className="text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
-                {monthSummary.totalOtHours.toFixed(1)}
+                {manualWorkSummary.totalOtHours.toFixed(1)}
               </span>
               <span className="text-xs text-slate-500 ml-1">hrs</span>
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              Multiplier: {salarySettings.otMultiplierNormal}x basic
+              {salarySettings.otMultiplierNormal}x @ ${salaryBreakdown.hourlyRate.toFixed(2)}/hr
             </div>
-          </div>
+          </button>
 
-          {/* Estimated Monthly Salary */}
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between">
+          <button
+            type="button"
+            onClick={() => onNavigate('salary')}
+            className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between text-left hover:border-amber-400 transition-colors"
+          >
             <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
               <span className="text-xs font-semibold">{t.estimatedSalary}</span>
               <DollarSign className="w-4 h-4 text-amber-500" />
             </div>
             <div className="mt-3">
-              {hasBasicSalary ? (
+              {hasPayInput ? (
                 <>
                   <span className="text-2xl font-bold tabular-nums text-slate-900 dark:text-white">
                     ${salaryBreakdown.estimatedTakeHomeSalary.toFixed(2)}
@@ -224,14 +180,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </>
               ) : (
                 <div className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-                  Configure Basic Pay
+                  Set Basic Pay
                 </div>
               )}
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-              {hasBasicSalary ? `Gross: $${salaryBreakdown.estimatedGrossSalary.toFixed(2)}` : 'Tap to set basic salary'}
+              {hasPayInput
+                ? `Gross: $${salaryBreakdown.estimatedGrossSalary.toFixed(2)}`
+                : 'Tap to calculate salary'}
             </div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -243,22 +201,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             <button
-              onClick={onOpenLogShiftModal}
+              onClick={() => onNavigate('salary')}
               className="flex items-center gap-3 p-3.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold transition-transform active:scale-[0.98] shadow-sm text-left"
             >
               <div className="p-2 rounded-xl bg-slate-950/15">
-                <PlusCircle className="w-5 h-5" />
-              </div>
-              <div className="text-xs sm:text-sm leading-tight">
-                {t.logTodayShift}
-              </div>
-            </button>
-
-            <button
-              onClick={() => onNavigate('salary')}
-              className="flex items-center gap-3 p-3.5 rounded-2xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-bold transition-all text-left shadow-sm"
-            >
-              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
                 <DollarSign className="w-5 h-5" />
               </div>
               <div className="text-xs sm:text-sm leading-tight">
@@ -275,6 +221,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="text-xs sm:text-sm leading-tight">
                 {t.createCV}
+              </div>
+            </button>
+
+            <button
+              onClick={() => onNavigate('reviews')}
+              className="flex items-center gap-3 p-3.5 rounded-2xl bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-bold transition-all text-left shadow-sm"
+            >
+              <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
+                <Star className="w-5 h-5" />
+              </div>
+              <div className="text-xs sm:text-sm leading-tight">
+                {t.navReviews}
               </div>
             </button>
 
@@ -303,8 +261,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div>
               <div className="font-bold text-sm">MOM Helpline: 6438 5122 · SCDF: 995</div>
               <div className="text-xs text-slate-400 mt-0.5">
-                {language === 'bn' 
-                  ? 'বকেয়া বেতন, কাজের নিরাপত্তা বা জরুরি বিপদে বিনা খরচে সাহায্য নিন।' 
+                {language === 'bn'
+                  ? 'বকেয়া বেতন, কাজের নিরাপত্তা বা জরুরি বিপদে বিনা খরচে সাহায্য নিন।'
                   : 'Official assistance for salary disputes, workplace safety, or injury claims.'}
               </div>
             </div>
@@ -336,12 +294,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="space-y-3">
               {[
-                { key: 'showMonthStats', label: 'Monthly Summary Cards (Days, Normal Hrs, OT)' },
-                { key: 'showExpiryAlerts', label: 'Document Expiry Alerts (30 Days)' },
+                { key: 'showSalaryEstimate', label: 'Salary & Work Estimate Cards' },
                 { key: 'showQuickActions', label: 'Quick Action Shortcuts' },
                 { key: 'showEmergencyHelp', label: 'MOM Helpline & Emergency Banner' },
               ].map((item) => (
-                <label key={item.key} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 cursor-pointer">
+                <label
+                  key={item.key}
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 cursor-pointer"
+                >
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
                     {item.label}
                   </span>

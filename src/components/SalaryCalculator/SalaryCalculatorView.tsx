@@ -8,35 +8,35 @@ import {
   ChevronDown,
   ChevronUp,
   FileText,
+  Clock,
 } from 'lucide-react';
 import {
   SalarySettings,
-  WorkShift,
+  ManualWorkSummary,
+  MonthlySummary,
   Language,
   SalaryCalculationBasis,
 } from '../../types';
 import { getTranslation } from '../../services/i18n';
-import { getMonthlySummary } from '../../services/workHoursEngine';
 import { calculateMonthlySalary, STATUTORY_NOTICE } from '../../services/salaryEngine';
 
 interface SalaryCalculatorViewProps {
   language: Language;
   salarySettings: SalarySettings;
   onUpdateSalarySettings: (settings: SalarySettings) => void;
-  shifts: WorkShift[];
+  manualWorkSummary: ManualWorkSummary;
+  onUpdateManualWorkSummary: (summary: ManualWorkSummary) => void;
 }
 
 export const SalaryCalculatorView: React.FC<SalaryCalculatorViewProps> = ({
   language,
   salarySettings,
   onUpdateSalarySettings,
-  shifts,
+  manualWorkSummary,
+  onUpdateManualWorkSummary,
 }) => {
   const t = getTranslation(language);
 
-  const now = new Date();
-  const [selectedYear, setSelectedYear] = useState(now.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [showFormulasModal, setShowFormulasModal] = useState(false);
 
@@ -46,9 +46,24 @@ export const SalaryCalculatorView: React.FC<SalaryCalculatorViewProps> = ({
   const [newDeductionName, setNewDeductionName] = useState('');
   const [newDeductionAmount, setNewDeductionAmount] = useState('');
 
-  const monthSummary = useMemo(() => {
-    return getMonthlySummary(shifts, selectedYear, selectedMonth);
-  }, [shifts, selectedYear, selectedMonth]);
+  const monthSummary = useMemo<MonthlySummary>(() => {
+    const now = new Date();
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+      totalShiftsCount: 0,
+      workingDaysCount: manualWorkSummary.workingDaysCount,
+      restDaysWorkedCount: manualWorkSummary.restDaysWorkedCount,
+      publicHolidaysWorkedCount: manualWorkSummary.publicHolidaysWorkedCount,
+      mcDaysCount: 0,
+      paidLeaveDaysCount: 0,
+      unpaidLeaveDaysCount: manualWorkSummary.unpaidLeaveDaysCount,
+      totalNormalHours: manualWorkSummary.totalNormalHours,
+      totalOtHours: manualWorkSummary.totalOtHours,
+      totalWorkingHours: manualWorkSummary.totalNormalHours + manualWorkSummary.totalOtHours,
+      shifts: [],
+    };
+  }, [manualWorkSummary]);
 
   const breakdown = useMemo(() => {
     return calculateMonthlySalary(salarySettings, monthSummary);
@@ -133,42 +148,136 @@ export const SalaryCalculatorView: React.FC<SalaryCalculatorViewProps> = ({
         </div>
       </div>
 
-      {/* Month Selector for Time Card Integration */}
-      <div className="bg-white dark:bg-slate-900 p-3 sm:p-3.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 shadow-sm">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-semibold text-slate-500">{t.month}:</span>
-          <select
-            value={selectedMonth}
-            onChange={(e) => setSelectedMonth(Number(e.target.value))}
-            className="text-xs font-semibold bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700"
-          >
-            {[
-              'January', 'February', 'March', 'April', 'May', 'June',
-              'July', 'August', 'September', 'October', 'November', 'December',
-            ].map((name, i) => (
-              <option key={i + 1} value={i + 1}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(Number(e.target.value))}
-            className="text-xs font-semibold bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700"
-          >
-            {[2025, 2026, 2027].map((yr) => (
-              <option key={yr} value={yr}>
-                {yr}
-              </option>
-            ))}
-          </select>
+      {/* Direct Work Hours & Days Input Card (Standalone Offline) */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm space-y-3">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <h2 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-500" />
+            Work Hours & Days Input
+          </h2>
+          <span className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+            {manualWorkSummary.totalOtHours.toFixed(1)} OT hrs
+          </span>
         </div>
 
-        <div className="text-xs text-slate-500">
-          <span className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
-            {monthSummary.totalOtHours.toFixed(1)} OT hrs
-          </span>{' '}
-          logged
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              Working Days
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="31"
+              step="1"
+              value={manualWorkSummary.workingDaysCount}
+              onChange={(e) =>
+                onUpdateManualWorkSummary({
+                  ...manualWorkSummary,
+                  workingDaysCount: Math.max(0, parseFloat(e.target.value) || 0),
+                })
+              }
+              className="w-full px-2.5 py-2 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white tabular-nums"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              Normal Hours
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={manualWorkSummary.totalNormalHours}
+              onChange={(e) =>
+                onUpdateManualWorkSummary({
+                  ...manualWorkSummary,
+                  totalNormalHours: Math.max(0, parseFloat(e.target.value) || 0),
+                })
+              }
+              className="w-full px-2.5 py-2 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white tabular-nums"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 mb-1">
+              OT Hours
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={manualWorkSummary.totalOtHours}
+              onChange={(e) =>
+                onUpdateManualWorkSummary({
+                  ...manualWorkSummary,
+                  totalOtHours: Math.max(0, parseFloat(e.target.value) || 0),
+                })
+              }
+              className="w-full px-2.5 py-2 text-xs font-bold rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-300 dark:border-emerald-800 text-slate-900 dark:text-white tabular-nums"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              Rest Days Worked
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              step="1"
+              value={manualWorkSummary.restDaysWorkedCount}
+              onChange={(e) =>
+                onUpdateManualWorkSummary({
+                  ...manualWorkSummary,
+                  restDaysWorkedCount: Math.max(0, parseFloat(e.target.value) || 0),
+                })
+              }
+              className="w-full px-2.5 py-2 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white tabular-nums"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              Public Holidays
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="10"
+              step="1"
+              value={manualWorkSummary.publicHolidaysWorkedCount}
+              onChange={(e) =>
+                onUpdateManualWorkSummary({
+                  ...manualWorkSummary,
+                  publicHolidaysWorkedCount: Math.max(0, parseFloat(e.target.value) || 0),
+                })
+              }
+              className="w-full px-2.5 py-2 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white tabular-nums"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
+              Unpaid Leave Days
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="31"
+              step="0.5"
+              value={manualWorkSummary.unpaidLeaveDaysCount}
+              onChange={(e) =>
+                onUpdateManualWorkSummary({
+                  ...manualWorkSummary,
+                  unpaidLeaveDaysCount: Math.max(0, parseFloat(e.target.value) || 0),
+                })
+              }
+              className="w-full px-2.5 py-2 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white tabular-nums"
+            />
+          </div>
         </div>
       </div>
 

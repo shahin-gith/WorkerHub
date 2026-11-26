@@ -24,7 +24,6 @@ import { copyToClipboard } from '../../utils/clipboard';
 interface WorkerHelpViewProps {
   language: Language;
   articles: HelpArticle[];
-  actorId: string;
   onPostArticle: (article: {
     title: string;
     category: HelpArticle['category'];
@@ -32,15 +31,14 @@ interface WorkerHelpViewProps {
     content: string;
     language: Language;
     sourceUrl?: string;
-  }) => Promise<void>;
-  onLikeArticle: (id: string) => Promise<void>;
-  onDeleteArticle: (id: string) => Promise<void>;
+  }) => void;
+  onLikeArticle: (id: string) => void;
+  onDeleteArticle: (id: string) => void;
 }
 
 export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
   language,
   articles,
-  actorId,
   onPostArticle,
   onLikeArticle,
   onDeleteArticle,
@@ -54,9 +52,7 @@ export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
   const [articleQuery, setArticleQuery] = useState('');
   const [articleCatFilter, setArticleCatFilter] = useState<string>('all');
 
-  // Post Article Modal state
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
-  const [postingArticle, setPostingArticle] = useState(false);
   const [articleNotice, setArticleNotice] = useState<string | null>(null);
   const [expandedArticleId, setExpandedArticleId] = useState<string | null>(null);
   const [postForm, setPostForm] = useState<{
@@ -81,35 +77,28 @@ export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
     }
   };
 
-  const handleCreateArticle = async (e: React.FormEvent) => {
+  const handleCreateArticle = (e: React.FormEvent) => {
     e.preventDefault();
     if (!postForm.title.trim() || !postForm.content.trim()) return;
 
-    setPostingArticle(true);
-    try {
-      await onPostArticle({
-        title: postForm.title.trim(),
-        category: postForm.category,
-        summary:
-          postForm.summary.trim() || postForm.content.trim().substring(0, 140),
-        content: postForm.content.trim(),
-        language,
-        sourceUrl: postForm.sourceUrl.trim() || undefined,
-      });
-      setIsPostModalOpen(false);
-      setPostForm({
-        title: '',
-        category: 'general',
-        summary: '',
-        content: '',
-        sourceUrl: '',
-      });
-      setArticleNotice('Your article was saved offline to WorkerHub Help.');
-    } catch (err: unknown) {
-      setArticleNotice((err as Error).message || 'Failed to save article.');
-    } finally {
-      setPostingArticle(false);
-    }
+    onPostArticle({
+      title: postForm.title.trim(),
+      category: postForm.category,
+      summary: postForm.summary.trim() || postForm.content.trim().substring(0, 140),
+      content: postForm.content.trim(),
+      language,
+      sourceUrl: postForm.sourceUrl.trim() || undefined,
+    });
+
+    setIsPostModalOpen(false);
+    setPostForm({
+      title: '',
+      category: 'general',
+      summary: '',
+      content: '',
+      sourceUrl: '',
+    });
+    setArticleNotice('Your article was saved offline to WorkerHub Help.');
   };
 
   const filteredResources = VERIFIED_RESOURCES.filter((res) => {
@@ -249,7 +238,6 @@ export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
             {allArticles.map((art) => {
               const isCustom = !art.id.startsWith('guide-');
               const isExpanded = expandedArticleId === art.id;
-              const isOwner = Boolean(art.isOwner || (actorId && art.userId === actorId));
 
               return (
                 <div
@@ -277,9 +265,7 @@ export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
                     {art.content.length > art.summary.length && (
                       <button
                         type="button"
-                        onClick={() =>
-                          setExpandedArticleId(isExpanded ? null : art.id)
-                        }
+                        onClick={() => setExpandedArticleId(isExpanded ? null : art.id)}
                         className="text-xs font-bold text-amber-600 dark:text-amber-400 hover:underline"
                       >
                         {isExpanded ? 'Show Less' : 'Read Full Guide'}
@@ -319,7 +305,7 @@ export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
                           <ExternalLink className="w-3 h-3" />
                         </a>
                       )}
-                      {isCustom && isOwner && (
+                      {isCustom && art.isOwner && (
                         <button
                           type="button"
                           onClick={() => onDeleteArticle(art.id)}
@@ -606,10 +592,9 @@ export const WorkerHelpView: React.FC<WorkerHelpViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={postingArticle}
-                  className="px-5 py-2 text-xs font-bold rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 transition-all shadow-sm"
+                  className="px-5 py-2 text-xs font-bold rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 transition-all shadow-sm"
                 >
-                  {postingArticle ? 'Saving...' : 'Save Article'}
+                  Save Article
                 </button>
               </div>
             </form>

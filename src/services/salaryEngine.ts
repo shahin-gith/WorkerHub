@@ -1,7 +1,7 @@
 import { SalaryBreakdown, SalarySettings, FormulaStep, MonthlySummary } from '../types';
 
 export const STATUTORY_NOTICE =
-  'Notice: These figures are user-configured estimates based on the settings and time card logs provided. Under the Singapore Employment Act, exact entitlements may depend on whether you are covered under Part IV (workmen earning up to $4,500/month or non-workmen earning up to $2,600/month), your written In-Principle Approval (IPA), Key Employment Terms (KETs), and specific collective agreements. This tool is not legal advice.';
+  'Notice: These figures are user-configured estimates based on the settings and work hours provided. Under the Singapore Employment Act, exact entitlements may depend on whether you are covered under Part IV (workmen earning up to $4,500/month or non-workmen earning up to $2,600/month), your written In-Principle Approval (IPA), Key Employment Terms (KETs), and specific collective agreements. This tool is not legal advice.';
 
 /**
  * Calculates the Hourly Basic Rate of Pay ($2.50 / hr default across all 3 sections)

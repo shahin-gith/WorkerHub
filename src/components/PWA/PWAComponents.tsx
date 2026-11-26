@@ -136,7 +136,7 @@ export const OfflineStatusBanner: React.FC<{ isOnline: boolean }> = ({ isOnline 
   return (
     <div className="no-print fixed bottom-20 left-4 right-4 z-40 max-w-md mx-auto flex items-center gap-2 rounded-2xl bg-amber-600 px-3.5 py-2 text-xs font-bold text-white shadow-xl">
       <WifiOff className="w-4 h-4 shrink-0" />
-      <span>Offline Mode active: All timecard records & salary calculations work 100% offline.</span>
+      <span>Offline Mode active: Salary calculations, CV builder, and guides work 100% offline.</span>
     </div>
   );
 };
